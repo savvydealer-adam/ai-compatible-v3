@@ -26,3 +26,25 @@ class LeadRequest(BaseModel):
     phone: str = ""
     analysis_url: str = ""
     score: int | None = None
+
+
+class VerifyRequestModel(BaseModel):
+    analysis_id: str
+    name: str
+    email: str
+    dealership: str
+    phone: str = ""
+    method: str = "email"  # "email" or "sms"
+
+    @field_validator("method")
+    @classmethod
+    def validate_method(cls, v: str) -> str:
+        if v not in ("email", "sms"):
+            msg = "method must be 'email' or 'sms'"
+            raise ValueError(msg)
+        return v
+
+
+class VerifyConfirmModel(BaseModel):
+    analysis_id: str
+    code: str

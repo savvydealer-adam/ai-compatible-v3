@@ -1,23 +1,34 @@
 import { useEffect } from "react";
 import { useRoute } from "wouter";
 import { useAnalysis } from "../hooks/useAnalysis";
+import { useVerification } from "../hooks/useVerification";
 import ScoreCard from "../components/ScoreCard";
 import GradeBreakdown from "../components/GradeBreakdown";
 import BotStatusGrid from "../components/BotStatusGrid";
 import IssuesList from "../components/IssuesList";
-import LeadCaptureForm from "../components/LeadCaptureForm";
+import VerificationForm from "../components/VerificationForm";
 import ProgressOverlay from "../components/ProgressOverlay";
-import { ExternalLink, Clock, Globe, Server } from "lucide-react";
+import { ExternalLink, Clock, Server } from "lucide-react";
 
 export default function Results() {
   const [, params] = useRoute("/results/:id");
-  const { data, isLoading, error, progress, pollResults } = useAnalysis();
+  const analysisId = params?.id || "";
+  const { data, isLoading, error, progress, pollResults, refetch } = useAnalysis();
+  const verification = useVerification(analysisId);
 
+  // Start polling with token if we have one
   useEffect(() => {
-    if (params?.id) {
-      pollResults(params.id);
+    if (analysisId) {
+      pollResults(analysisId, verification.token || undefined);
     }
-  }, [params?.id, pollResults]);
+  }, [analysisId, pollResults, verification.token]);
+
+  // Re-fetch with token when verification completes
+  useEffect(() => {
+    if (verification.isVerified && verification.token && analysisId) {
+      refetch(analysisId, verification.token);
+    }
+  }, [verification.isVerified, verification.token, analysisId, refetch]);
 
   if (error) {
     return (
@@ -52,36 +63,44 @@ export default function Results() {
     );
   }
 
+  const isGated = data.status === "complete" && data.gated;
+
+  // Gated view — score only + verification form
+  if (isGated && !verification.isVerified) {
+    return (
+      <div className="space-y-6">
+        <ResultsHeader data={data} />
+
+        {data.score && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <ScoreCard score={data.score} />
+            <div className="md:col-span-2">
+              <GradeBreakdown categories={data.score.categories} />
+            </div>
+          </div>
+        )}
+
+        <VerificationForm
+          analysisId={analysisId}
+          step={verification.step as "info" | "code"}
+          formData={verification.formData}
+          setFormData={verification.setFormData}
+          isSubmitting={verification.isSubmitting}
+          error={verification.error}
+          onRequestCode={verification.requestCode}
+          onConfirmCode={verification.confirmCode}
+          onEditInfo={verification.editInfo}
+        />
+      </div>
+    );
+  }
+
+  // Full view — all results
   const { score, bot_permissions, issues, recommendations, provider, analysis_time, blocking, markdown_agents, llms_txt, faq_schema, sitemap, inventory, vdp } = data;
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Analysis Results</h1>
-          <a
-            href={data.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-sm text-primary flex items-center gap-1 mt-1"
-          >
-            {data.url} <ExternalLink className="w-3 h-3" />
-          </a>
-        </div>
-        <div className="flex items-center gap-4 text-sm text-muted-foreground">
-          {analysis_time && (
-            <span className="flex items-center gap-1">
-              <Clock className="w-4 h-4" /> {analysis_time}s
-            </span>
-          )}
-          {provider && provider.name !== "Unknown" && (
-            <span className="flex items-center gap-1">
-              <Server className="w-4 h-4" /> {provider.name}
-            </span>
-          )}
-        </div>
-      </div>
+      <ResultsHeader data={data} />
 
       {/* Score + Breakdown */}
       {score && (
@@ -146,12 +165,36 @@ export default function Results() {
 
       {/* Issues + Recommendations */}
       <IssuesList issues={issues} recommendations={recommendations} />
+    </div>
+  );
+}
 
-      {/* Lead capture */}
-      <LeadCaptureForm
-        analysisUrl={data.url}
-        score={score?.total_score ?? null}
-      />
+function ResultsHeader({ data }: { data: { url: string; analysis_time?: number | null; provider?: any } }) {
+  return (
+    <div className="flex items-center justify-between">
+      <div>
+        <h1 className="text-2xl font-bold">Analysis Results</h1>
+        <a
+          href={data.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-sm text-primary flex items-center gap-1 mt-1"
+        >
+          {data.url} <ExternalLink className="w-3 h-3" />
+        </a>
+      </div>
+      <div className="flex items-center gap-4 text-sm text-muted-foreground">
+        {data.analysis_time && (
+          <span className="flex items-center gap-1">
+            <Clock className="w-4 h-4" /> {data.analysis_time}s
+          </span>
+        )}
+        {data.provider && data.provider.name !== "Unknown" && (
+          <span className="flex items-center gap-1">
+            <Server className="w-4 h-4" /> {data.provider.name}
+          </span>
+        )}
+      </div>
     </div>
   );
 }

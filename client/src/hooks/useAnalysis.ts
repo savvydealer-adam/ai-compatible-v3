@@ -7,7 +7,8 @@ interface UseAnalysisReturn {
   error: string | null;
   progress: { step: string; percent: number } | null;
   analyze: (url: string) => Promise<string>;
-  pollResults: (id: string) => void;
+  pollResults: (id: string, token?: string) => void;
+  refetch: (id: string, token: string) => Promise<void>;
 }
 
 export function useAnalysis(): UseAnalysisReturn {
@@ -27,13 +28,13 @@ export function useAnalysis(): UseAnalysisReturn {
   useEffect(() => cleanup, [cleanup]);
 
   const pollResults = useCallback(
-    (id: string) => {
+    (id: string, token?: string) => {
       setIsLoading(true);
       setError(null);
 
       intervalRef.current = setInterval(async () => {
         try {
-          const result = await getResults(id);
+          const result = await getResults(id, token);
           if (result.status === "complete" || result.status === "error") {
             setData(result);
             setIsLoading(false);
@@ -74,5 +75,14 @@ export function useAnalysis(): UseAnalysisReturn {
     [cleanup, pollResults]
   );
 
-  return { data, isLoading, error, progress, analyze, pollResults };
+  const refetch = useCallback(async (id: string, token: string) => {
+    try {
+      const result = await getResults(id, token);
+      setData(result);
+    } catch {
+      // Keep existing data on refetch failure
+    }
+  }, []);
+
+  return { data, isLoading, error, progress, analyze, pollResults, refetch };
 }

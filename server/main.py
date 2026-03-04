@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from server.config import settings
-from server.routes import analysis, health, leads
+from server.routes import analysis, health, leads, verify
 
 logging.basicConfig(
     level=logging.DEBUG if settings.debug else logging.INFO,
@@ -34,6 +34,7 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(analysis.router)
 app.include_router(leads.router)
+app.include_router(verify.router)
 
 # Serve React static files in production
 static_dir = Path(__file__).parent.parent / "client" / "dist"

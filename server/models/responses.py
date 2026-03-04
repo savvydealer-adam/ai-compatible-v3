@@ -44,6 +44,7 @@ class AnalysisResponse(BaseModel):
     id: str
     url: str
     status: str  # "running", "complete", "error"
+    gated: bool = False
     progress: dict | None = None
     error: str | None = None
 
@@ -76,3 +77,27 @@ class AnalysisStartResponse(BaseModel):
 class LeadResponse(BaseModel):
     success: bool
     message: str = ""
+
+
+class VerifyResponse(BaseModel):
+    success: bool
+    message: str = ""
+    method: str = ""
+
+
+class VerifyConfirmResponse(BaseModel):
+    success: bool
+    token: str = ""
+    message: str = ""
+
+
+def to_public_response(response: AnalysisResponse) -> AnalysisResponse:
+    """Strip detailed results, keeping only score. Returns a gated copy."""
+    return AnalysisResponse(
+        id=response.id,
+        url=response.url,
+        status=response.status,
+        gated=True,
+        score=response.score,
+        analysis_time=response.analysis_time,
+    )

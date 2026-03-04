@@ -13,3 +13,17 @@ export interface LeadRequest {
   analysis_url?: string;
   score?: number;
 }
+
+export interface VerifyRequest {
+  analysis_id: string;
+  name: string;
+  email: string;
+  dealership: string;
+  phone?: string;
+  method: "email" | "sms";
+}
+
+export interface VerifyConfirm {
+  analysis_id: string;
+  code: string;
+}

@@ -26,8 +26,11 @@ class Settings(BaseSettings):
     resend_api_key: str = ""
     google_sheets_credentials: str = ""  # path to service account JSON
     google_sheets_id: str = ""
+    twilio_account_sid: str = ""
+    twilio_auth_token: str = ""
+    twilio_phone_number: str = ""
 
-    model_config = {"env_prefix": "AIC_"}
+    model_config = {"env_prefix": "AIC_", "env_file": ".env", "env_file_encoding": "utf-8"}
 
 
 settings = Settings()

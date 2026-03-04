@@ -1,10 +1,11 @@
 """Analysis API endpoints."""
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from server.models.requests import AnalysisRequest
-from server.models.responses import AnalysisResponse, AnalysisStartResponse
+from server.models.responses import AnalysisResponse, AnalysisStartResponse, to_public_response
 from server.services.analyzer import AnalysisOrchestrator
+from server.services.verification import store as verification_store
 
 router = APIRouter()
 
@@ -20,7 +21,7 @@ async def start_analysis(request: AnalysisRequest):
 
 
 @router.get("/api/results/{analysis_id}", response_model=AnalysisResponse)
-async def get_results(analysis_id: str):
+async def get_results(analysis_id: str, token: str = Query(default="")):
     """Get analysis results (or progress if still running)."""
     result = orchestrator.get_result(analysis_id)
     if not result:
@@ -29,5 +30,12 @@ async def get_results(analysis_id: str):
     # Attach progress if still running
     if result.status == "running":
         result.progress = orchestrator.get_progress(analysis_id)
+        return result
+
+    # Gate completed results behind verification
+    if result.status == "complete":
+        if token and verification_store.is_verified(analysis_id, token):
+            return result
+        return to_public_response(result)
 
     return result

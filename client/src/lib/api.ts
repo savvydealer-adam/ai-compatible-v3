@@ -10,9 +10,33 @@ export async function startAnalysis(url: string): Promise<{ id: string; status: 
   return res.json();
 }
 
-export async function getResults(id: string): Promise<AnalysisResponse> {
-  const res = await fetch(`${API_BASE}/results/${id}`);
+export async function getResults(id: string, token?: string): Promise<AnalysisResponse> {
+  const params = token ? `?token=${encodeURIComponent(token)}` : "";
+  const res = await fetch(`${API_BASE}/results/${id}${params}`);
   if (!res.ok) throw new Error("Failed to fetch results");
+  return res.json();
+}
+
+export async function requestVerification(data: VerifyRequest): Promise<VerifyResponse> {
+  const res = await fetch(`${API_BASE}/verify/request`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Failed to send code" }));
+    throw new Error(err.detail || "Failed to send code");
+  }
+  return res.json();
+}
+
+export async function confirmVerification(data: VerifyConfirm): Promise<VerifyConfirmResponse> {
+  const res = await fetch(`${API_BASE}/verify/confirm`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error("Failed to verify code");
   return res.json();
 }
 
@@ -73,6 +97,7 @@ export interface AnalysisResponse {
   id: string;
   url: string;
   status: string;
+  gated: boolean;
   progress: { step: string; percent: number } | null;
   error: string | null;
   score: ScoreResponse | null;
@@ -92,4 +117,30 @@ export interface AnalysisResponse {
   issues: Issue[];
   recommendations: string[];
   analysis_time: number | null;
+}
+
+export interface VerifyRequest {
+  analysis_id: string;
+  name: string;
+  email: string;
+  dealership: string;
+  phone?: string;
+  method: "email" | "sms";
+}
+
+export interface VerifyConfirm {
+  analysis_id: string;
+  code: string;
+}
+
+export interface VerifyResponse {
+  success: boolean;
+  message: string;
+  method: string;
+}
+
+export interface VerifyConfirmResponse {
+  success: boolean;
+  token: string;
+  message: string;
 }
