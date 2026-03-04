@@ -14,7 +14,11 @@ export default function Home() {
     if (!url.trim()) return;
 
     try {
-      const id = await analyze(url.trim());
+      let input = url.trim().replace(/\/+$/, "");
+      if (!/^https?:\/\//i.test(input)) {
+        input = `https://${input}`;
+      }
+      const id = await analyze(input);
       navigate(`/results/${id}`);
     } catch {
       // Error handled by hook
