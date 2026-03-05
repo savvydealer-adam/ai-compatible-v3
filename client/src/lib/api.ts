@@ -209,6 +209,7 @@ export interface BotPermission {
   http_accessible: boolean | null;
   response_time: number | null;
   details: string;
+  cloudflare_ip_whitelisted: boolean;
 }
 
 export interface AnalysisResponse {

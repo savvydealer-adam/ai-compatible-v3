@@ -1,5 +1,5 @@
 import type { BotPermission } from "../lib/api";
-import { Check, X, AlertCircle } from "lucide-react";
+import { Check, X, AlertCircle, Shield } from "lucide-react";
 
 interface BotStatusGridProps {
   permissions: BotPermission[];
@@ -15,9 +15,15 @@ export default function BotStatusGrid({ permissions }: BotStatusGridProps) {
         {permissions.map((bot) => (
           <div
             key={bot.bot_name}
-            className="flex items-center gap-3 p-3 rounded-md border text-sm"
+            className={`flex items-center gap-3 p-3 rounded-md border text-sm ${
+              bot.cloudflare_ip_whitelisted ? "border-amber-200 bg-amber-50/30" : ""
+            }`}
           >
-            <StatusIcon robots={bot.robots_status} http={bot.http_accessible} />
+            <StatusIcon
+              robots={bot.robots_status}
+              http={bot.http_accessible}
+              cfWhitelisted={bot.cloudflare_ip_whitelisted}
+            />
             <div className="flex-1 min-w-0">
               <div className="font-medium truncate">{bot.bot_name}</div>
               <div className="text-xs text-muted-foreground">{bot.details}</div>
@@ -45,6 +51,11 @@ export default function BotStatusGrid({ permissions }: BotStatusGridProps) {
               >
                 http
               </span>
+              {bot.cloudflare_ip_whitelisted && (
+                <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">
+                  CF bypass
+                </span>
+              )}
             </div>
           </div>
         ))}
@@ -56,10 +67,15 @@ export default function BotStatusGrid({ permissions }: BotStatusGridProps) {
 function StatusIcon({
   robots,
   http,
+  cfWhitelisted,
 }: {
   robots: string;
   http: boolean | null;
+  cfWhitelisted?: boolean;
 }) {
+  if (cfWhitelisted) {
+    return <Shield className="w-5 h-5 text-amber-500 shrink-0" />;
+  }
   if (robots === "blocked" || http === false) {
     return <X className="w-5 h-5 text-red-500 shrink-0" />;
   }

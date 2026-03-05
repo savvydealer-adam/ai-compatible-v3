@@ -126,7 +126,7 @@ export default function Results() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard
           label="CloudFlare"
-          value={blocking?.cloudflare_detected ? "Detected" : "Not detected"}
+          value={blocking?.cloudflare_detected ? cfTierLabel(blocking.cloudflare_blocking_tier) : "Not detected"}
           good={!blocking?.cloudflare_detected}
         />
         <StatCard
@@ -202,6 +202,20 @@ function ResultsHeader({ data }: { data: { url: string; analysis_time?: number |
       </div>
     </div>
   );
+}
+
+const CF_TIER_LABELS: Record<string, string> = {
+  none: "Not detected",
+  passive: "Present (not blocking)",
+  ai_scrapers_toggle: "AI Scrapers Toggle",
+  bot_fight_mode: "Bot Fight Mode",
+  super_bot_fight_mode: "Super Bot Fight Mode",
+  enterprise: "Enterprise Bot Mgmt",
+};
+
+function cfTierLabel(tier?: string): string {
+  if (!tier || tier === "none") return "Detected";
+  return CF_TIER_LABELS[tier] || "Detected";
 }
 
 function StatCard({ label, value, good }: { label: string; value: string; good?: boolean }) {
