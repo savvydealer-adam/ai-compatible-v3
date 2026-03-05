@@ -5,7 +5,7 @@ import { googleAuth } from "./lib/api";
 import Admin from "./pages/Admin";
 import Home from "./pages/Home";
 import Results from "./pages/Results";
-import { LogOut } from "lucide-react";
+import { LogOut, Shield } from "lucide-react";
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
 
@@ -36,6 +36,14 @@ function App() {
           </a>
           {auth.isLoggedIn && auth.user ? (
             <div className="flex items-center gap-3">
+              {auth.user.email.endsWith("@savvydealer.com") && (
+                <a
+                  href="/admin"
+                  className="flex items-center gap-1 text-xs text-primary hover:text-primary/80 transition-colors font-medium"
+                >
+                  <Shield className="w-3 h-3" /> Admin
+                </a>
+              )}
               <span className="text-sm text-muted-foreground">
                 {auth.user.name}{" "}
                 <span className="hidden sm:inline">({auth.user.email})</span>
