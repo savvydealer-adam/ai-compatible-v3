@@ -39,10 +39,13 @@ class BotAccessDetector(BaseDetector):
                 robots_permissions.get(bot_name, "unknown"),
             )
 
-            # Annotate OpenAI bots blocked by Cloudflare
+            # Annotate OpenAI bots behind Cloudflare
             if cloudflare_detected and bot_name in OPENAI_BOTS and perm.http_accessible is False:
                 perm.cloudflare_ip_whitelisted = True
-                perm.details += " (ChatGPT IPs whitelisted by Cloudflare — likely accessible)"
+                perm.details += (
+                    " (ChatGPT IPs are Cloudflare-whitelisted by default,"
+                    " but site may override with AI Scrapers Toggle)"
+                )
 
             results.append(perm)
             await asyncio.sleep(0.5)  # Rate limiting between tests

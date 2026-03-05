@@ -101,8 +101,7 @@ class AICompatibilityScorer:
         access = bots.get("access_test", {})
 
         robots_blocked = robots.get("ai_bots_blocked_count", 0)
-        cf_whitelisted = set(access.get("bots_cf_whitelisted", []))
-        access_blocked = len([b for b in access.get("bots_blocked", []) if b not in cf_whitelisted])
+        access_blocked = len(access.get("bots_blocked", []))
         total_blocked = max(robots_blocked, access_blocked)
 
         if total_blocked >= 4:
@@ -189,9 +188,7 @@ class AICompatibilityScorer:
         bots_blocked = access.get("bots_blocked", [])
         bots_allowed = access.get("bots_allowed", [])
         bots_cf_whitelisted = set(access.get("bots_cf_whitelisted", []))
-        # Don't penalize bots that bypass Cloudflare via IP whitelist
-        effective_blocked = [b for b in bots_blocked if b not in bots_cf_whitelisted]
-        num_blocked = len(effective_blocked)
+        num_blocked = len(bots_blocked)
         num_allowed = len(bots_allowed)
         # Unknown = total - blocked - allowed
         total_bots = len(access.get("bot_access_results", {}))
@@ -225,8 +222,8 @@ class AICompatibilityScorer:
 
         if bots_cf_whitelisted:
             details.append(
-                f"{len(bots_cf_whitelisted)} OpenAI bot(s) blocked by UA "
-                "but IP-whitelisted by Cloudflare (not penalized)"
+                f"{len(bots_cf_whitelisted)} OpenAI bot(s) have Cloudflare IP whitelist"
+                " (access depends on AI Scrapers Toggle setting)"
             )
 
         score += bot_access_score
