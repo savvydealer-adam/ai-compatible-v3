@@ -6,7 +6,7 @@ import logging
 import httpx
 
 from server.config import settings
-from server.data.bot_user_agents import ALL_AI_BOTS
+from server.data.bot_user_agents import ALL_AI_BOTS, OPENAI_BOTS
 from server.detectors.base import BaseDetector
 from server.models.schemas import BotPermission
 
@@ -16,7 +16,9 @@ logger = logging.getLogger(__name__)
 class BotAccessDetector(BaseDetector):
     """Test HTTP accessibility for each AI bot user agent."""
 
-    async def test(self, domain: str, robots_permissions: dict[str, str]) -> list[BotPermission]:
+    async def test(
+        self, domain: str, robots_permissions: dict[str, str], cloudflare_detected: bool = False
+    ) -> list[BotPermission]:
         """Test each AI bot's HTTP access to the site."""
         url = self.make_url(domain)
 
@@ -36,6 +38,12 @@ class BotAccessDetector(BaseDetector):
                 browser_length,
                 robots_permissions.get(bot_name, "unknown"),
             )
+
+            # Annotate OpenAI bots blocked by Cloudflare
+            if cloudflare_detected and bot_name in OPENAI_BOTS and perm.http_accessible is False:
+                perm.cloudflare_ip_whitelisted = True
+                perm.details += " (ChatGPT IPs whitelisted by Cloudflare — likely accessible)"
+
             results.append(perm)
             await asyncio.sleep(0.5)  # Rate limiting between tests
 
@@ -86,6 +94,13 @@ class BotAccessDetector(BaseDetector):
             )
             perm.response_time = round(time.time() - start, 2)
             perm.http_status = resp.status_code
+
+            # Capture Cloudflare-specific signals
+            if resp.headers.get("cf-mitigated"):
+                perm.cf_mitigated_header = True
+            body_snippet = (resp.text or "")[:15000]
+            if "/cdn-cgi/challenge-platform/" in body_snippet:
+                perm.challenge_platform_detected = True
 
             if resp.status_code == 403:
                 perm.http_accessible = False

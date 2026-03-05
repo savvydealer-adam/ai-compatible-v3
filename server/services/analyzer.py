@@ -268,7 +268,9 @@ class AnalysisOrchestrator:
                     # Step 6: AI bot access testing
                     self._update_progress(analysis_id, "Testing AI bot access", 65)
                     bot_permissions_list = await bot_access_det.test(
-                        domain, robots_result.get("bot_permissions", {})
+                        domain,
+                        robots_result.get("bot_permissions", {}),
+                        cloudflare_detected=blocking_info.cloudflare_detected,
                     )
 
                     # Build access test summary
@@ -278,11 +280,24 @@ class AnalysisOrchestrator:
                     bots_allowed = [
                         b.bot_name for b in bot_permissions_list if b.http_accessible is True
                     ]
+                    bots_cf_whitelisted = [
+                        b.bot_name for b in bot_permissions_list if b.cloudflare_ip_whitelisted
+                    ]
+                    # Classify Cloudflare blocking tier
+                    cf_tier, cf_tier_signals = blocking_det.classify_cloudflare_tier(
+                        blocking_info.cloudflare_detected, bot_permissions_list
+                    )
+                    blocking_info.cloudflare_blocking_tier = cf_tier
+                    blocking_info.cloudflare_tier_signals = cf_tier_signals
+                    analysis_data["base_analysis"]["cloudflare_blocking_tier"] = cf_tier
+                    analysis_data["base_analysis"]["cloudflare_tier_signals"] = cf_tier_signals
+
                     analysis_data["ai_bots"] = {
                         "robots_analysis": robots_result,
                         "access_test": {
                             "bots_blocked": bots_blocked,
                             "bots_allowed": bots_allowed,
+                            "bots_cf_whitelisted": bots_cf_whitelisted,
                             "bot_access_results": {
                                 b.bot_name: b.http_accessible for b in bot_permissions_list
                             },
@@ -359,17 +374,13 @@ class AnalysisOrchestrator:
 
         except Exception as e:
             logger.exception(f"Analysis failed for {domain}")
-            error_response = AnalysisResponse(
-                id=analysis_id, url=url, status="error", error=str(e)
-            )
+            error_response = AnalysisResponse(id=analysis_id, url=url, status="error", error=str(e))
             self._results[analysis_id] = error_response
             self._update_progress(analysis_id, "Error", 100)
             await self._save_to_db(analysis_id, url, error_response)
 
     @staticmethod
-    async def _save_to_db(
-        analysis_id: str, url: str, response: AnalysisResponse
-    ) -> None:
+    async def _save_to_db(analysis_id: str, url: str, response: AnalysisResponse) -> None:
         """Persist analysis result to the database."""
         try:
             from server.db import execute

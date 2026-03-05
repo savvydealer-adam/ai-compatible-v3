@@ -268,6 +268,62 @@ class BlockingDetector(BaseDetector):
         return any(p in content_lower for p in CAPTCHA_ELEMENTS)
 
     @staticmethod
+    def classify_cloudflare_tier(
+        cloudflare_detected: bool,
+        bot_results: list,
+    ) -> tuple[str, list[str]]:
+        """Classify Cloudflare blocking tier from bot response signals.
+
+        Tiers (from lightest to heaviest):
+        - none: No Cloudflare detected
+        - passive: Cloudflare present but not blocking AI bots
+        - ai_scrapers_toggle: Straight 403 for bot UAs, no challenge page
+        - bot_fight_mode: JS challenge with /cdn-cgi/challenge-platform/
+        - super_bot_fight_mode: cf-mitigated header present
+        - enterprise: Cloudflare blocking but no identifiable tier signals
+        """
+        if not cloudflare_detected:
+            return "none", []
+
+        blocked_bots = [b for b in bot_results if b.http_accessible is False]
+
+        if not blocked_bots:
+            return "passive", ["Cloudflare present, no AI bots blocked"]
+
+        signals: list[str] = []
+        has_challenge_platform = any(b.challenge_platform_detected for b in blocked_bots)
+        has_cf_mitigated = any(b.cf_mitigated_header for b in blocked_bots)
+        has_403 = any(b.http_status == 403 for b in blocked_bots)
+        has_503 = any(b.http_status in (503, 429) for b in blocked_bots)
+
+        # Super Bot Fight Mode: cf-mitigated header is the strongest signal
+        if has_cf_mitigated:
+            signals.append("cf-mitigated header on bot response")
+            if has_challenge_platform:
+                signals.append("/cdn-cgi/challenge-platform/ in response body")
+            return "super_bot_fight_mode", signals
+
+        # Bot Fight Mode: challenge-platform in body without cf-mitigated
+        if has_challenge_platform:
+            signals.append("/cdn-cgi/challenge-platform/ in response body")
+            if has_503:
+                signals.append("503 JS challenge responses")
+            return "bot_fight_mode", signals
+
+        # AI Scrapers Toggle: clean 403 with no challenge infrastructure
+        if has_403 and not has_503:
+            signals.append("Direct 403 for bot UAs, no challenge page")
+            return "ai_scrapers_toggle", signals
+
+        # Cloudflare is blocking but tier is unclear
+        if has_503:
+            signals.append("503 responses without challenge-platform")
+        if has_403:
+            signals.append("403 responses")
+        signals.append("Cloudflare blocking detected, specific tier unclear")
+        return "enterprise", signals
+
+    @staticmethod
     def _identify_blocking_provider(resp: httpx.Response) -> str:
         """Identify which service is blocking access on a 403."""
         # Header-based detection

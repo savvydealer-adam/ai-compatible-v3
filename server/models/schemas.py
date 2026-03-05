@@ -9,6 +9,9 @@ class BotPermission(BaseModel):
     http_accessible: bool | None = None
     response_time: float | None = None
     details: str = ""
+    cloudflare_ip_whitelisted: bool = False
+    cf_mitigated_header: bool = False
+    challenge_platform_detected: bool = False
 
 
 class SchemaItem(BaseModel):
@@ -70,6 +73,8 @@ class BlockingInfo(BaseModel):
     blocking_provider: str = ""
     status_code: int | None = None
     details: list[str] = []
+    cloudflare_blocking_tier: str = "none"
+    cloudflare_tier_signals: list[str] = []
 
 
 class MarkdownAgentsInfo(BaseModel):
