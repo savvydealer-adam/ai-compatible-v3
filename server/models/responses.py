@@ -7,7 +7,6 @@ from server.models.schemas import (
     ContentSignalInfo,
     FaqSchemaInfo,
     InventoryInfo,
-    LlmsTxtInfo,
     MarkdownAgentsInfo,
     MetaTagsInfo,
     ProviderInfo,
@@ -60,7 +59,6 @@ class AnalysisResponse(BaseModel):
     meta_tags: MetaTagsInfo | None = None
     provider: ProviderInfo | None = None
     markdown_agents: MarkdownAgentsInfo | None = None
-    llms_txt: LlmsTxtInfo | None = None
     content_signal: ContentSignalInfo | None = None
     rsl: RslInfo | None = None
     faq_schema: FaqSchemaInfo | None = None

@@ -14,7 +14,6 @@ from server.detectors.bot_protection import BotProtectionDetector
 from server.detectors.content_signal import ContentSignalDetector
 from server.detectors.faq_schema import FaqSchemaDetector
 from server.detectors.inventory import InventoryDetector
-from server.detectors.llms_txt import LlmsTxtDetector
 from server.detectors.markdown_agents import MarkdownAgentsDetector
 from server.detectors.meta_tags import MetaTagsDetector
 from server.detectors.provider import ProviderDetector
@@ -83,7 +82,6 @@ class AnalysisOrchestrator:
                 sitemap_det = SitemapDetector(client, page_cache)
                 meta_det = MetaTagsDetector(client, page_cache)
                 markdown_det = MarkdownAgentsDetector(client, page_cache)
-                llms_det = LlmsTxtDetector(client, page_cache)
                 content_signal_det = ContentSignalDetector(client, page_cache)
                 rsl_det = RslDetector(client, page_cache)
                 faq_det = FaqSchemaDetector(client, page_cache)
@@ -100,7 +98,6 @@ class AnalysisOrchestrator:
                     sitemap_det,
                     meta_det,
                     markdown_det,
-                    llms_det,
                     content_signal_det,
                     rsl_det,
                     faq_det,
@@ -294,9 +291,8 @@ class AnalysisOrchestrator:
                     # Step 7: v3 new checks (parallel)
                     self._update_progress(analysis_id, "Running v3 checks", 80)
                     robots_content = robots_result.get("raw_robots_txt", "")
-                    md_info, llms_info, cs_info, rsl_info, faq_info = await asyncio.gather(
+                    md_info, cs_info, rsl_info, faq_info = await asyncio.gather(
                         markdown_det.check(domain),
-                        llms_det.check(domain),
                         content_signal_det.check(domain, robots_content or None),
                         rsl_det.check(domain, robots_content or None),
                         faq_det.check(domain),
@@ -306,7 +302,6 @@ class AnalysisOrchestrator:
                         "available": md_info.available,
                         "token_count": md_info.token_count,
                     }
-                    analysis_data["llms_txt"] = {"found": llms_info.found, "url": llms_info.url}
                     analysis_data["content_signal"] = {
                         "found": cs_info.found,
                         "raw_directive": cs_info.raw_directive,
@@ -350,7 +345,6 @@ class AnalysisOrchestrator:
                     meta_tags=homepage_meta if not site_blocked else None,
                     provider=provider_info if not site_blocked else None,
                     markdown_agents=md_info if not site_blocked else None,
-                    llms_txt=llms_info if not site_blocked else None,
                     content_signal=cs_info if not site_blocked else None,
                     rsl=rsl_info if not site_blocked else None,
                     faq_schema=faq_info if not site_blocked else None,

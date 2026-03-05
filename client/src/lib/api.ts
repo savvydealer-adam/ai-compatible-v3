@@ -110,7 +110,6 @@ export interface AnalysisResponse {
   meta_tags: any;
   provider: any;
   markdown_agents: any;
-  llms_txt: any;
   content_signal: any;
   rsl: any;
   faq_schema: any;

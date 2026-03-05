@@ -453,13 +453,7 @@ class AICompatibilityScorer:
             score += 2
             details.append("Markdown for Agents (+2)")
 
-        # E. llms.txt bonus (1 point, new in v3)
-        llms = analysis.get("llms_txt", {})
-        if llms.get("found"):
-            score += 1
-            details.append("llms.txt found (+1)")
-
-        # F. FAQPage schema bonus (3 points, new in v3)
+        # E. FAQPage schema bonus (3 points, new in v3)
         faq = analysis.get("faq_schema", {})
         if faq.get("found"):
             score += 3

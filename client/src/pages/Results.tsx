@@ -93,7 +93,7 @@ export default function Results() {
   }
 
   // Full view — all results
-  const { score, bot_permissions, issues, recommendations, provider, analysis_time, blocking, markdown_agents, llms_txt, faq_schema, sitemap, inventory, vdp } = data;
+  const { score, bot_permissions, issues, recommendations, provider, analysis_time, blocking, markdown_agents, faq_schema, sitemap, inventory, vdp } = data;
 
   return (
     <div className="space-y-6">
@@ -134,16 +134,11 @@ export default function Results() {
       </div>
 
       {/* v3 features */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-3 gap-4">
         <StatCard
           label="Markdown for Agents"
           value={markdown_agents?.available ? "Supported" : "Not available"}
           good={markdown_agents?.available}
-        />
-        <StatCard
-          label="llms.txt"
-          value={llms_txt?.found ? "Found" : "Not found"}
-          good={llms_txt?.found}
         />
         <StatCard
           label="FAQPage Schema"

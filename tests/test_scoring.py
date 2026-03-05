@@ -86,7 +86,6 @@ class TestScoring:
             },
             "x_robots": {"homepage": {}, "inventory": {}, "vdp": {}},
             "markdown_for_agents": {"markdown_supported": False, "available": False},
-            "llms_txt": {"found": False},
             "faq_schema": {"found": False},
             "cloudflare_present": False,
         }
@@ -190,21 +189,3 @@ class TestScoring:
 
         assert score_faq.total_score >= score_no_faq.total_score + 3
 
-    def test_llms_txt_bonus(self):
-        """llms.txt should add 1 point to discoverability category."""
-        # Reduce base discoverability so bonus has room
-        analysis_no = self._base_analysis()
-        analysis_no["sitemap"]["sitemap_found"] = False
-        analysis_no["sitemap"]["has_vehicle_urls"] = False
-        analysis_no["sitemap"]["sitemap_fresh"] = False
-
-        analysis_yes = self._base_analysis()
-        analysis_yes["sitemap"]["sitemap_found"] = False
-        analysis_yes["sitemap"]["has_vehicle_urls"] = False
-        analysis_yes["sitemap"]["sitemap_fresh"] = False
-        analysis_yes["llms_txt"]["found"] = True
-
-        score_no, _ = self.scorer.score(analysis_no)
-        score_yes, _ = self.scorer.score(analysis_yes)
-
-        assert score_yes.total_score >= score_no.total_score + 1

@@ -87,14 +87,6 @@ def generate_recommendations(issues: list[Issue], analysis: dict) -> list[str]:
             "Remove noai/noimageai meta directives to allow AI systems to access your content."
         )
 
-    # Priority 7: llms.txt
-    llms = analysis.get("llms_txt", {})
-    if not llms.get("found"):
-        recs.append(
-            "Add llms.txt to help AI systems understand your site. "
-            "Create /llms.txt with a markdown summary of your dealership."
-        )
-
     # Fallback
     if not recs:
         recs.append("Maintain current AI-friendly configuration. Your site scores well!")

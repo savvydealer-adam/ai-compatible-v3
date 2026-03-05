@@ -91,11 +91,43 @@ export default function Home() {
           <Zap className="w-8 h-8 text-green-500 mb-3" />
           <h3 className="font-semibold mb-2">Discoverability</h3>
           <p className="text-sm text-muted-foreground">
-            Check sitemaps, meta tags, llms.txt, and Markdown for Agents
-            support.
+            Check sitemaps, meta tags, and Markdown for Agents support.
           </p>
         </div>
       </div>
+
+      {/* FAQ */}
+      <div className="mt-16">
+        <h2 className="text-2xl font-bold mb-6 text-center">FAQ</h2>
+        <div className="space-y-4">
+          <FaqItem
+            question="What does this tool test?"
+            answer="We test your dealership website across 6 categories: site accessibility, structured data (JSON-LD schemas), discoverability (sitemaps, meta tags), AI bot access (robots.txt + live HTTP tests with 17 crawler user agents), content signals, and bonus features like FAQPage schema and Markdown for Agents."
+          />
+          <FaqItem
+            question="Why don't you test for llms.txt?"
+            answer="llms.txt is an emerging standard that lets websites provide AI-friendly summaries of their content. While it's a promising concept, adoption is still extremely low across the automotive industry. We'll add llms.txt testing once it gains meaningful traction. For now, our scoring focuses on signals that AI systems actively use today."
+          />
+          <FaqItem
+            question="How is my score calculated?"
+            answer="Your score is on a 100-point scale across 6 weighted categories: Blocking Prevention (20 pts), Structured Data (25 pts), Discoverability (25 pts), Bot Access (15 pts), Signals (10 pts), and Bonus Features (5 pts). Letter grades range from A+ (96+) to F (below 65)."
+          />
+        </div>
+      </div>
     </div>
+  );
+}
+
+function FaqItem({ question, answer }: { question: string; answer: string }) {
+  return (
+    <details className="group p-4 rounded-lg border bg-card">
+      <summary className="font-medium cursor-pointer list-none flex items-center justify-between">
+        {question}
+        <span className="text-muted-foreground group-open:rotate-180 transition-transform">
+          &#9662;
+        </span>
+      </summary>
+      <p className="mt-3 text-sm text-muted-foreground leading-relaxed">{answer}</p>
+    </details>
   );
 }
