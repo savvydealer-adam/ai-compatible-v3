@@ -72,11 +72,8 @@ export default function Results() {
         <ResultsHeader data={data} />
 
         {data.score && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="max-w-sm mx-auto">
             <ScoreCard score={data.score} />
-            <div className="md:col-span-2">
-              <GradeBreakdown categories={data.score.categories} />
-            </div>
           </div>
         )}
 

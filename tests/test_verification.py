@@ -179,10 +179,16 @@ class TestToPublicResponse:
         assert public.score.total_score == 85
         assert public.score.grade == "B"
 
-    def test_analysis_time_preserved(self):
+    def test_analysis_time_stripped(self):
         response = self._make_response()
         public = to_public_response(response)
-        assert public.analysis_time == 42.5
+        assert public.analysis_time is None
+
+    def test_categories_stripped(self):
+        response = self._make_response()
+        public = to_public_response(response)
+        assert public.score.categories == []
+        assert public.score.bonus_points == 0
 
     def test_detailed_fields_stripped(self):
         response = self._make_response()

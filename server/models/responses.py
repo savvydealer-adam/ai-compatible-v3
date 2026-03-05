@@ -92,12 +92,19 @@ class VerifyConfirmResponse(BaseModel):
 
 
 def to_public_response(response: AnalysisResponse) -> AnalysisResponse:
-    """Strip detailed results, keeping only score. Returns a gated copy."""
+    """Strip detailed results, keeping only total score + grade. Returns a gated copy."""
+    public_score = None
+    if response.score:
+        public_score = ScoreResponse(
+            total_score=response.score.total_score,
+            max_score=response.score.max_score,
+            grade=response.score.grade,
+            grade_label=response.score.grade_label,
+        )
     return AnalysisResponse(
         id=response.id,
         url=response.url,
         status=response.status,
         gated=True,
-        score=response.score,
-        analysis_time=response.analysis_time,
+        score=public_score,
     )
