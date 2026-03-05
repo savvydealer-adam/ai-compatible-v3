@@ -17,6 +17,10 @@ interface FormData {
   method: "email" | "sms";
 }
 
+interface UseVerificationOptions {
+  onAccountCreated?: (jwt: string) => void;
+}
+
 interface UseVerificationReturn {
   step: Step;
   isVerified: boolean;
@@ -26,7 +30,7 @@ interface UseVerificationReturn {
   formData: FormData;
   setFormData: (data: FormData) => void;
   requestCode: (data: VerifyRequest) => Promise<void>;
-  confirmCode: (analysisId: string, code: string) => Promise<void>;
+  confirmCode: (analysisId: string, code: string, createAccount?: boolean) => Promise<void>;
   editInfo: () => void;
 }
 
@@ -46,7 +50,10 @@ function storeToken(analysisId: string, token: string): void {
   }
 }
 
-export function useVerification(analysisId: string): UseVerificationReturn {
+export function useVerification(
+  analysisId: string,
+  options: UseVerificationOptions = {},
+): UseVerificationReturn {
   const [step, setStep] = useState<Step>("info");
   const [token, setToken] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -94,15 +101,22 @@ export function useVerification(analysisId: string): UseVerificationReturn {
   );
 
   const confirmCode = useCallback(
-    async (analysisId: string, code: string) => {
+    async (analysisId: string, code: string, createAccount?: boolean) => {
       setIsSubmitting(true);
       setError(null);
       try {
-        const res = await confirmVerification({ analysis_id: analysisId, code });
+        const res = await confirmVerification({
+          analysis_id: analysisId,
+          code,
+          create_account: createAccount,
+        });
         if (res.success && res.token) {
           setToken(res.token);
           storeToken(analysisId, res.token);
           setStep("verified");
+          if (res.jwt && options.onAccountCreated) {
+            options.onAccountCreated(res.jwt);
+          }
         } else {
           setError(res.message || "Invalid code");
         }
@@ -112,7 +126,7 @@ export function useVerification(analysisId: string): UseVerificationReturn {
         setIsSubmitting(false);
       }
     },
-    []
+    [options.onAccountCreated]
   );
 
   const editInfo = useCallback(() => {

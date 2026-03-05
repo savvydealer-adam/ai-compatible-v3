@@ -1,10 +1,11 @@
 """Analysis API endpoints."""
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Header, HTTPException, Query
 
 from server.models.requests import AnalysisRequest
 from server.models.responses import AnalysisResponse, AnalysisStartResponse, to_public_response
 from server.services.analyzer import AnalysisOrchestrator
+from server.services.jwt_auth import decode_jwt, extract_bearer_token
 from server.services.verification import store as verification_store
 
 router = APIRouter()
@@ -21,7 +22,11 @@ async def start_analysis(request: AnalysisRequest):
 
 
 @router.get("/api/results/{analysis_id}", response_model=AnalysisResponse)
-async def get_results(analysis_id: str, token: str = Query(default="")):
+async def get_results(
+    analysis_id: str,
+    token: str = Query(default=""),
+    authorization: str = Header(default=""),
+):
     """Get analysis results (or progress if still running)."""
     result = orchestrator.get_result(analysis_id)
     if not result:
@@ -34,6 +39,11 @@ async def get_results(analysis_id: str, token: str = Query(default="")):
 
     # Gate completed results behind verification
     if result.status == "complete":
+        # Check JWT first (account holders get all results)
+        bearer = extract_bearer_token(authorization)
+        if bearer and decode_jwt(bearer):
+            return result
+        # Fall back to per-analysis token (guest path)
         if token and verification_store.is_verified(analysis_id, token):
             return result
         return to_public_response(result)

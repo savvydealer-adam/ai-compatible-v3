@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     # Analysis
     result_cache_ttl: int = 3600  # 1 hour
 
+    # JWT
+    jwt_secret: str = ""
+    jwt_expiry_days: int = 30
+
     # External services
     resend_api_key: str = ""
     google_sheets_credentials: str = ""  # path to service account JSON
@@ -29,6 +33,15 @@ class Settings(BaseSettings):
     twilio_account_sid: str = ""
     twilio_auth_token: str = ""
     twilio_phone_number: str = ""
+    google_oauth_client_id: str = ""
+
+    # Database (Cloud SQL via asyncpg)
+    database_host: str = "localhost"
+    database_port: int = 5432
+    database_name: str = ""
+    database_user: str = "postgres"
+    database_password: str = ""
+    database_unix_socket: str = ""  # Cloud SQL socket path
 
     model_config = {"env_prefix": "AIC_", "env_file": ".env", "env_file_encoding": "utf-8"}
 

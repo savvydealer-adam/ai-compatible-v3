@@ -48,3 +48,10 @@ class VerifyRequestModel(BaseModel):
 class VerifyConfirmModel(BaseModel):
     analysis_id: str
     code: str
+    create_account: bool = False
+
+
+class GoogleAuthRequest(BaseModel):
+    credential: str
+    dealership: str = ""
+    phone: str = ""

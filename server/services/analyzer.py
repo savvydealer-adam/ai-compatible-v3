@@ -1,6 +1,7 @@
 """Analysis orchestrator — coordinates all detectors."""
 
 import asyncio
+import json
 import logging
 import time
 import uuid
@@ -354,13 +355,50 @@ class AnalysisOrchestrator:
                 )
                 self._results[analysis_id] = response
                 self._update_progress(analysis_id, "Complete", 100)
+                await self._save_to_db(analysis_id, url, response)
 
         except Exception as e:
             logger.exception(f"Analysis failed for {domain}")
-            self._results[analysis_id] = AnalysisResponse(
+            error_response = AnalysisResponse(
                 id=analysis_id, url=url, status="error", error=str(e)
             )
+            self._results[analysis_id] = error_response
             self._update_progress(analysis_id, "Error", 100)
+            await self._save_to_db(analysis_id, url, error_response)
+
+    @staticmethod
+    async def _save_to_db(
+        analysis_id: str, url: str, response: AnalysisResponse
+    ) -> None:
+        """Persist analysis result to the database."""
+        try:
+            from server.db import execute
+
+            score = response.score.total_score if response.score else None
+            grade = response.score.grade if response.score else None
+            data_json = json.dumps(response.model_dump(mode="json"))
+
+            await execute(
+                """
+                INSERT INTO analyses (id, url, score, grade, status, data_json, error)
+                VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)
+                ON CONFLICT (id) DO UPDATE SET
+                    score = EXCLUDED.score,
+                    grade = EXCLUDED.grade,
+                    status = EXCLUDED.status,
+                    data_json = EXCLUDED.data_json,
+                    error = EXCLUDED.error
+                """,
+                analysis_id,
+                url,
+                score,
+                grade,
+                response.status,
+                data_json,
+                response.error,
+            )
+        except Exception:
+            logger.exception("Failed to save analysis to database")
 
     @staticmethod
     async def _detect_provider(det: ProviderDetector, content: str):

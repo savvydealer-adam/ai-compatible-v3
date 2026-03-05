@@ -1,6 +1,7 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRoute } from "wouter";
 import { useAnalysis } from "../hooks/useAnalysis";
+import { useAuth } from "../hooks/useAuth";
 import { useVerification } from "../hooks/useVerification";
 import ScoreCard from "../components/ScoreCard";
 import GradeBreakdown from "../components/GradeBreakdown";
@@ -13,8 +14,10 @@ import { ExternalLink, Clock, Server } from "lucide-react";
 export default function Results() {
   const [, params] = useRoute("/results/:id");
   const analysisId = params?.id || "";
+  const auth = useAuth();
   const { data, isLoading, error, progress, pollResults, refetch } = useAnalysis();
-  const verification = useVerification(analysisId);
+  const verification = useVerification(analysisId, { onAccountCreated: auth.login });
+  const [accountMode, setAccountMode] = useState(false);
 
   // Start polling with token if we have one
   useEffect(() => {
@@ -29,6 +32,13 @@ export default function Results() {
       refetch(analysisId, verification.token);
     }
   }, [verification.isVerified, verification.token, analysisId, refetch]);
+
+  // Re-fetch when user is logged in (JWT auto-unlocks)
+  useEffect(() => {
+    if (auth.isLoggedIn && analysisId && data?.gated) {
+      refetch(analysisId, "");
+    }
+  }, [auth.isLoggedIn, analysisId, data?.gated, refetch]);
 
   if (error) {
     return (
@@ -65,8 +75,8 @@ export default function Results() {
 
   const isGated = data.status === "complete" && data.gated;
 
-  // Gated view — score only + verification form
-  if (isGated && !verification.isVerified) {
+  // Gated view — score only + verification form (skip if logged in)
+  if (isGated && !verification.isVerified && !auth.isLoggedIn) {
     return (
       <div className="space-y-6">
         <ResultsHeader data={data} />
@@ -87,6 +97,9 @@ export default function Results() {
           onRequestCode={verification.requestCode}
           onConfirmCode={verification.confirmCode}
           onEditInfo={verification.editInfo}
+          accountMode={accountMode}
+          onSetAccountMode={setAccountMode}
+          onGoogleAuth={auth.login}
         />
       </div>
     );

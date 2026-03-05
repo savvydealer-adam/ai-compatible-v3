@@ -2,6 +2,8 @@ steps:
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'build'
+      - '--build-arg'
+      - 'VITE_GOOGLE_CLIENT_ID=1045744362741-ioqu54jkjcrspj2ora6ptafqhbdmqjsk.apps.googleusercontent.com'
       - '-t'
       - 'us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/ai-compatible-v3:$COMMIT_SHA'
       - '-t'
@@ -27,6 +29,8 @@ steps:
       - '--platform'
       - 'managed'
       - '--allow-unauthenticated'
+      - '--add-cloudsql-instances'
+      - 'savvydealer-website:us-central1:ai-compatible-db'
 
 images:
   - 'us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/ai-compatible-v3:$COMMIT_SHA'

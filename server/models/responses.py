@@ -86,7 +86,15 @@ class VerifyResponse(BaseModel):
 class VerifyConfirmResponse(BaseModel):
     success: bool
     token: str = ""
+    jwt: str = ""
     message: str = ""
+
+
+class AuthMeResponse(BaseModel):
+    email: str
+    name: str
+    dealership: str
+    phone: str = ""
 
 
 def to_public_response(response: AnalysisResponse) -> AnalysisResponse:
