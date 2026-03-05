@@ -146,6 +146,28 @@ class BlockingDetector(BaseDetector):
             info.is_blocked = True
             info.details.append("Site-blocking CAPTCHA detected")
 
+        # Classify Cloudflare tier from initial response when blocked
+        if cf and info.is_blocked:
+            body = (resp.text or "")[:15000]
+            has_cf_mitigated = bool(resp.headers.get("cf-mitigated"))
+            has_challenge_platform = "/cdn-cgi/challenge-platform/" in body
+
+            if has_cf_mitigated:
+                info.cloudflare_blocking_tier = "super_bot_fight_mode"
+                info.cloudflare_tier_signals.append("cf-mitigated header")
+            elif has_challenge_platform:
+                info.cloudflare_blocking_tier = "bot_fight_mode"
+                info.cloudflare_tier_signals.append("/cdn-cgi/challenge-platform/ in response")
+            elif info.js_challenge:
+                info.cloudflare_blocking_tier = "bot_fight_mode"
+                info.cloudflare_tier_signals.append("JS challenge on browser request")
+            elif resp.status_code == 403:
+                info.cloudflare_blocking_tier = "ai_scrapers_toggle"
+                info.cloudflare_tier_signals.append("Cloudflare 403 on browser request")
+            else:
+                info.cloudflare_blocking_tier = "enterprise"
+                info.cloudflare_tier_signals.append("Cloudflare blocking, tier unclear")
+
         return info, resp
 
     async def check_rate_limiting(self, domain: str) -> bool:

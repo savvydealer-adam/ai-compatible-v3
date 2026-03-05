@@ -137,6 +137,12 @@ class AnalysisOrchestrator:
                     )
                     analysis_data["ai_bots"] = {"robots_analysis": robots_result, "access_test": {}}
                     analysis_data["site_blocked"] = True
+                    analysis_data["base_analysis"]["cloudflare_blocking_tier"] = (
+                        blocking_info.cloudflare_blocking_tier
+                    )
+                    analysis_data["base_analysis"]["cloudflare_tier_signals"] = (
+                        blocking_info.cloudflare_tier_signals
+                    )
                 else:
                     # Full parallel analysis
                     (
