@@ -212,6 +212,74 @@ export interface BotPermission {
   cloudflare_ip_whitelisted: boolean;
 }
 
+export interface AIProviderVerification {
+  provider_name: string;
+  could_access: boolean | null;
+  returned_price: string;
+  price_matches: boolean;
+  returned_vin: string;
+  vin_matches: boolean;
+  response_text: string;
+  error: string;
+}
+
+export interface AILiveVerifyResult {
+  verified: boolean;
+  providers: AIProviderVerification[];
+  ground_truth_used: {
+    vdp_url: string;
+    expected_price: string;
+    expected_vin: string;
+    vehicle_title: string;
+  } | null;
+  details: string;
+}
+
+// ── V2 Types ──
+
+export interface GroundTruthPage {
+  url: string;
+  page_type: string;
+  accessible: boolean;
+  price: string;
+  vin: string;
+  vehicle_title: string;
+  vehicle_count: number;
+  robots_rules: Record<string, string>;
+  sitemap_url_count: number;
+}
+
+export interface GroundTruthResult {
+  pages: GroundTruthPage[];
+  source: string;
+  crawl_time: number;
+  domain: string;
+}
+
+export interface AIVerifyCheck {
+  check_type: string;
+  could_access: boolean | null;
+  data_returned: string;
+  data_expected: string;
+  match_score: number;
+}
+
+export interface AIProviderVerificationV2 {
+  provider_name: string;
+  checks: AIVerifyCheck[];
+  overall_access: string;
+  access_score: number;
+  response_text: string;
+  error: string;
+}
+
+export interface AILiveVerifyResultV2 {
+  ground_truth: GroundTruthResult | null;
+  providers: AIProviderVerificationV2[];
+  summary: string;
+  ai_verify_score: number;
+}
+
 export interface AnalysisResponse {
   id: string;
   url: string;
@@ -232,6 +300,7 @@ export interface AnalysisResponse {
   content_signal: any;
   rsl: any;
   faq_schema: any;
+  ai_live_verify: AILiveVerifyResultV2 | AILiveVerifyResult | null;
   issues: Issue[];
   recommendations: string[];
   analysis_time: number | null;

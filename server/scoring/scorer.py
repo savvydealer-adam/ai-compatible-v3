@@ -113,13 +113,23 @@ class AICompatibilityScorer:
         return 1.0
 
     def _score_blocking(self, analysis: dict, issues: list[Issue]) -> tuple[int, list[str]]:
-        """Score blocking prevention (max 25 points)."""
+        """Score blocking prevention (max 25 points).
+
+        When ai_verify_enabled, allocation is:
+        - Robots.txt: 5 pts, WAF: 5 pts, Bot access: 2 pts, Rate limit: 2 pts,
+          IP blocking: 1 pt, AI Live Verify: 10 pts = 25 total
+        When disabled, original weights apply (no AI verify score).
+        """
         score = 0
         details: list[str] = []
         base = analysis.get("base_analysis", {})
         bots = analysis.get("ai_bots", {})
         robots = bots.get("robots_analysis", {})
         access = bots.get("access_test", {})
+
+        # Check if V2 AI verify is present (uses ai_live_verify_v2 key)
+        has_v2_verify = "ai_live_verify_v2" in analysis
+        ai_verify_enabled = has_v2_verify
 
         # Site fully blocked — capped at 2-5 points
         if analysis.get("site_blocked"):
@@ -141,13 +151,14 @@ class AICompatibilityScorer:
             )
             return score, details
 
-        # A. Robots.txt AI bot permissions (max 10)
+        # A. Robots.txt AI bot permissions (max 10 old / max 5 with V2)
+        robots_per_bot = 1 if ai_verify_enabled else 2
         bot_permissions = robots.get("bot_permissions", {})
         for bot in KEY_AI_BOTS:
             perm = bot_permissions.get(bot, "not_specified")
             if perm != "blocked":
-                score += 2
-                details.append(f"{bot}: allowed (+2)")
+                score += robots_per_bot
+                details.append(f"{bot}: allowed (+{robots_per_bot})")
             else:
                 issues.append(
                     Issue(
@@ -158,52 +169,74 @@ class AICompatibilityScorer:
                     )
                 )
 
-        # B. WAF / Accessibility (max 7)
+        # B. WAF / Accessibility (max 7 old / max 5 with V2)
         resp_code = base.get("response_code")
-        if resp_code == 200:
-            score += 3
-            details.append("Homepage accessible (+3)")
-
-        bot_protection = analysis.get("bot_protection", {})
-        if not bot_protection.get("bot_protection_detected", False):
-            score += 2
-            details.append("No bot protection (+2)")
-        else:
-            issues.append(
-                Issue(
-                    severity="warning",
-                    category="blocking",
-                    message=(
-                        "Bot protection detected: "
-                        f"{bot_protection.get('protection_type', 'Unknown')}"
-                    ),
+        if ai_verify_enabled:
+            if resp_code == 200:
+                score += 2
+                details.append("Homepage accessible (+2)")
+            bot_protection = analysis.get("bot_protection", {})
+            if not bot_protection.get("bot_protection_detected", False):
+                score += 1
+                details.append("No bot protection (+1)")
+            else:
+                issues.append(
+                    Issue(
+                        severity="warning",
+                        category="blocking",
+                        message=(
+                            "Bot protection detected: "
+                            f"{bot_protection.get('protection_type', 'Unknown')}"
+                        ),
+                    )
                 )
-            )
+            if not base.get("forbidden_access", False):
+                score += 2
+                details.append("No 403 Forbidden (+2)")
+        else:
+            if resp_code == 200:
+                score += 3
+                details.append("Homepage accessible (+3)")
+            bot_protection = analysis.get("bot_protection", {})
+            if not bot_protection.get("bot_protection_detected", False):
+                score += 2
+                details.append("No bot protection (+2)")
+            else:
+                issues.append(
+                    Issue(
+                        severity="warning",
+                        category="blocking",
+                        message=(
+                            "Bot protection detected: "
+                            f"{bot_protection.get('protection_type', 'Unknown')}"
+                        ),
+                    )
+                )
+            if not base.get("forbidden_access", False):
+                score += 2
+                details.append("No 403 Forbidden (+2)")
 
-        if not base.get("forbidden_access", False):
-            score += 2
-            details.append("No 403 Forbidden (+2)")
-
-        # C. Bot access test (starts at 5, can go to -15)
+        # C. Bot access test (starts at 5 old / 2 with V2, can go negative)
         bots_blocked = access.get("bots_blocked", [])
         bots_allowed = access.get("bots_allowed", [])
         bots_cf_whitelisted = set(access.get("bots_cf_whitelisted", []))
         num_blocked = len(bots_blocked)
         num_allowed = len(bots_allowed)
-        # Unknown = total - blocked - allowed
         total_bots = len(access.get("bot_access_results", {}))
         num_unknown = max(0, total_bots - num_blocked - num_allowed)
 
+        bot_access_base = 2 if ai_verify_enabled else 5
         if num_blocked == 0 and num_unknown == 0:
-            bot_access_score = 5
-            details.append("All bots have access (+5)")
+            bot_access_score = bot_access_base
+            details.append(f"All bots have access (+{bot_access_base})")
         else:
             blocked_penalty = num_blocked * -3
             unknown_penalty = num_unknown * -2
-            # Whitelist detection: some allowed + some blocked = selective blocking
             has_whitelist = num_allowed >= 2 and num_blocked >= 2
             whitelist_penalty = -8 if has_whitelist else 0
-            bot_access_score = max(-15, 5 + blocked_penalty + unknown_penalty + whitelist_penalty)
+            bot_access_score = max(
+                -15, bot_access_base + blocked_penalty + unknown_penalty + whitelist_penalty
+            )
 
             if has_whitelist:
                 issues.append(
@@ -256,6 +289,32 @@ class AICompatibilityScorer:
         if not base.get("datacenter_blocked", False):
             score += 1
             details.append("No IP blocking (+1)")
+
+        # H. AI Live Verify V2 (max 10 pts, only when enabled)
+        if ai_verify_enabled:
+            v2_data = analysis.get("ai_live_verify_v2", {})
+            ai_score = v2_data.get("ai_verify_score", 0.0)
+            ai_pts = int(round(ai_score))
+            score += ai_pts
+            details.append(f"AI Live Verify (+{ai_pts}/10)")
+
+            # Add provider-level details
+            for p in v2_data.get("providers", []):
+                pname = p.get("provider_name", "unknown")
+                access = p.get("overall_access", "unknown")
+                if access == "full":
+                    details.append(f"  {pname}: FULL access")
+                elif access == "partial":
+                    details.append(f"  {pname}: PARTIAL access")
+                elif access == "blocked":
+                    details.append(f"  {pname}: BLOCKED")
+                    issues.append(
+                        Issue(
+                            severity="warning",
+                            category="blocking",
+                            message=f"AI provider {pname} is blocked from accessing site",
+                        )
+                    )
 
         return score, details
 

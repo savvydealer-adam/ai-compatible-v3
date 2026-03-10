@@ -35,6 +35,15 @@ class Settings(BaseSettings):
     twilio_phone_number: str = ""
     google_oauth_client_id: str = ""
 
+    # AI Live Verification (optional)
+    openai_api_key: str = ""
+    anthropic_api_key: str = ""
+    gemini_api_key: str = ""
+    kimi_api_key: str = ""
+    ai_verify_enabled: bool = False
+    ai_verify_timeout: float = 30.0
+    playwright_timeout: float = 20.0
+
     # Database (Cloud SQL via asyncpg)
     database_host: str = "localhost"
     database_port: int = 5432

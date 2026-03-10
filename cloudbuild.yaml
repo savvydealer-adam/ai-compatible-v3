@@ -29,8 +29,10 @@ steps:
       - '--platform'
       - 'managed'
       - '--allow-unauthenticated'
-      - '--add-cloudsql-instances'
-      - 'savvydealer-website:us-central1:ai-compatible-db'
+      - '--memory'
+      - '2Gi'
+      - '--cpu'
+      - '2'
 
 images:
   - 'us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/ai-compatible-v3:$COMMIT_SHA'

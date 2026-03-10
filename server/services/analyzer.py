@@ -143,6 +143,25 @@ class AnalysisOrchestrator:
                     analysis_data["base_analysis"]["cloudflare_tier_signals"] = (
                         blocking_info.cloudflare_tier_signals
                     )
+
+                    # Live AI verification on blocked sites (V2)
+                    if settings.ai_verify_enabled:
+                        self._update_progress(analysis_id, "Ground truth crawl (blocked)", 40)
+                        from server.detectors.ground_truth import GroundTruthCrawler
+
+                        gt_crawler = GroundTruthCrawler(
+                            domain=domain,
+                            robots_data=robots_result,
+                        )
+                        ground_truth_result = await gt_crawler.crawl()
+
+                        self._update_progress(analysis_id, "AI verification (V2)", 55)
+                        from server.detectors.ai_live_verify import AILiveVerifyDetectorV2
+
+                        verify_v2 = AILiveVerifyDetectorV2(domain, ground_truth_result)
+                        verify_result_v2 = await verify_v2.verify()
+                        analysis_data["ai_live_verify_v2"] = verify_result_v2.model_dump()
+                        analysis_data["ai_live_verify"] = verify_result_v2.model_dump()
                 else:
                     # Full parallel analysis
                     (
@@ -310,6 +329,41 @@ class AnalysisOrchestrator:
                         },
                     }
 
+                    # Step 6.5: Live AI verification (V2 with ground truth)
+                    site_is_blocked = (
+                        blocking_info.cloudflare_detected
+                        or bots_blocked
+                        or analysis_data["base_analysis"].get("forbidden_access")
+                    )
+                    has_vdp_ground_truth = vdp_info.found and vdp_content_info.get("price_text")
+                    if settings.ai_verify_enabled and (has_vdp_ground_truth or site_is_blocked):
+                        self._update_progress(analysis_id, "Ground truth crawl", 70)
+
+                        # Build ground truth via Playwright (or httpx fallback)
+                        from server.detectors.ground_truth import GroundTruthCrawler
+
+                        vdp_urls = [vdp_info.url] if vdp_info.found else []
+                        gt_crawler = GroundTruthCrawler(
+                            domain=domain,
+                            inventory_url=inv_info.url if inv_info.found else "",
+                            vdp_urls=vdp_urls,
+                            robots_data=robots_result,
+                            sitemap_data=analysis_data.get("sitemap"),
+                            vdp_content_info=vdp_content_info if has_vdp_ground_truth else None,
+                        )
+                        ground_truth_result = await gt_crawler.crawl()
+
+                        # V2 AI verification against ground truth
+                        self._update_progress(analysis_id, "AI verification (V2)", 75)
+                        from server.detectors.ai_live_verify import AILiveVerifyDetectorV2
+
+                        verify_v2 = AILiveVerifyDetectorV2(domain, ground_truth_result)
+                        verify_result_v2 = await verify_v2.verify()
+                        analysis_data["ai_live_verify_v2"] = verify_result_v2.model_dump()
+
+                        # Also store as ai_live_verify for backwards compat
+                        analysis_data["ai_live_verify"] = verify_result_v2.model_dump()
+
                     # Step 7: v3 new checks (parallel)
                     self._update_progress(analysis_id, "Running v3 checks", 80)
                     robots_content = robots_result.get("raw_robots_txt", "")
@@ -353,6 +407,17 @@ class AnalysisOrchestrator:
 
                 # Build final response
                 elapsed = round(time.time() - start_time, 1)
+                # Build live verify result (V2 or V1)
+                ai_live_verify = None
+                if "ai_live_verify_v2" in analysis_data:
+                    from server.models.schemas import AILiveVerifyResultV2
+
+                    ai_live_verify = AILiveVerifyResultV2(**analysis_data["ai_live_verify_v2"])
+                elif "ai_live_verify" in analysis_data:
+                    from server.models.schemas import AILiveVerifyResult
+
+                    ai_live_verify = AILiveVerifyResult(**analysis_data["ai_live_verify"])
+
                 response = AnalysisResponse(
                     id=analysis_id,
                     url=url,
@@ -370,6 +435,7 @@ class AnalysisOrchestrator:
                     content_signal=cs_info if not site_blocked else None,
                     rsl=rsl_info if not site_blocked else None,
                     faq_schema=faq_info if not site_blocked else None,
+                    ai_live_verify=ai_live_verify,
                     issues=issues,
                     recommendations=recommendations,
                     analysis_time=elapsed,

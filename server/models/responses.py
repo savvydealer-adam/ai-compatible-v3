@@ -1,6 +1,8 @@
 from pydantic import BaseModel
 
 from server.models.schemas import (
+    AILiveVerifyResult,
+    AILiveVerifyResultV2,
     BlockingInfo,
     BotPermission,
     BotProtectionInfo,
@@ -62,6 +64,7 @@ class AnalysisResponse(BaseModel):
     content_signal: ContentSignalInfo | None = None
     rsl: RslInfo | None = None
     faq_schema: FaqSchemaInfo | None = None
+    ai_live_verify: AILiveVerifyResultV2 | AILiveVerifyResult | None = None
     issues: list[Issue] = []
     recommendations: list[str] = []
     analysis_time: float | None = None

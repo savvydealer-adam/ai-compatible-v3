@@ -7,6 +7,7 @@ import ScoreCard from "../components/ScoreCard";
 import GradeBreakdown from "../components/GradeBreakdown";
 import BotStatusGrid from "../components/BotStatusGrid";
 import IssuesList from "../components/IssuesList";
+import LiveVerifyCard from "../components/LiveVerifyCard";
 import VerificationForm from "../components/VerificationForm";
 import ProgressOverlay from "../components/ProgressOverlay";
 import { ExternalLink, Clock, Server } from "lucide-react";
@@ -106,7 +107,7 @@ export default function Results() {
   }
 
   // Full view — all results
-  const { score, bot_permissions, issues, recommendations, provider, analysis_time, blocking, markdown_agents, faq_schema, sitemap, inventory, vdp } = data;
+  const { score, bot_permissions, issues, recommendations, provider, analysis_time, blocking, markdown_agents, faq_schema, sitemap, inventory, vdp, ai_live_verify } = data;
 
   return (
     <div className="space-y-6">
@@ -167,6 +168,9 @@ export default function Results() {
 
       {/* Bot status grid */}
       <BotStatusGrid permissions={bot_permissions} />
+
+      {/* Live AI Verification */}
+      {ai_live_verify && <LiveVerifyCard data={ai_live_verify} />}
 
       {/* Issues + Recommendations */}
       <IssuesList issues={issues} recommendations={recommendations} />

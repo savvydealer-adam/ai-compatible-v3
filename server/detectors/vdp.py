@@ -239,16 +239,34 @@ class VdpDetector(BaseDetector):
             "vin_visible": False,
             "mileage_visible": False,
             "images_found": 0,
+            "price_text": "",
+            "vin_text": "",
+            "vehicle_title": "",
         }
 
-        if PRICE_PATTERN.search(html):
+        price_match = PRICE_PATTERN.search(html)
+        if price_match:
             result["price_visible"] = True
-        if VIN_PATTERN.search(html):
+            result["price_text"] = price_match.group(0)
+
+        vin_match = VIN_PATTERN.search(html)
+        if vin_match:
             result["vin_visible"] = True
+            result["vin_text"] = vin_match.group(0)
+
         if re.search(r"\d[\d,]*\s*miles|\bmileage[:\s]*\d|\bodometer[:\s]*\d", html, re.IGNORECASE):
             result["mileage_visible"] = True
 
         soup = self.parse_html(html)
         result["images_found"] = len(soup.find_all("img"))
+
+        # Extract vehicle title from <h1> or <title>
+        h1 = soup.find("h1")
+        if h1 and h1.get_text(strip=True):
+            result["vehicle_title"] = h1.get_text(strip=True)
+        else:
+            title_tag = soup.find("title")
+            if title_tag and title_tag.get_text(strip=True):
+                result["vehicle_title"] = title_tag.get_text(strip=True)
 
         return result
