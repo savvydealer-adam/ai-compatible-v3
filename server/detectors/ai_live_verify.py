@@ -228,7 +228,7 @@ async def _verify_gemini(ground_truth: GroundTruth) -> AIProviderVerification:
 
         response = await asyncio.wait_for(
             client.aio.models.generate_content(
-                model="gemini-2.0-flash",
+                model="gemini-2.5-flash",
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     tools=[types.Tool(google_search=types.GoogleSearch())],
@@ -609,7 +609,7 @@ async def _call_gemini(prompt: str) -> str:
     client = genai.Client(api_key=settings.gemini_api_key)
     response = await asyncio.wait_for(
         client.aio.models.generate_content(
-            model="gemini-2.0-flash",
+            model="gemini-2.5-flash",
             contents=prompt,
             config=types.GenerateContentConfig(
                 tools=[types.Tool(google_search=types.GoogleSearch())],
