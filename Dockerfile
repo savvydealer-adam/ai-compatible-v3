@@ -12,16 +12,10 @@ RUN npm run build
 FROM python:3.12-slim AS production
 WORKDIR /app
 
-# Install system deps for Playwright Chromium
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libnss3 libnspr4 libdbus-1-3 libatk1.0-0 libatk-bridge2.0-0 \
-    libcups2 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libpango-1.0-0 \
-    libcairo2 libasound2 libxshmfence1 libx11-xcb1 libxcb1 \
-    && rm -rf /var/lib/apt/lists/*
-
 # Install Python dependencies
 COPY pyproject.toml ./
-RUN pip install --no-cache-dir . && playwright install chromium
+RUN pip install --no-cache-dir . \
+    && playwright install --with-deps chromium
 
 # Copy server code
 COPY server/ ./server/
