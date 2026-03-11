@@ -103,9 +103,11 @@ class GroundTruthCrawler:
         try:
             page = await context.new_page()
             resp = await page.goto(url, wait_until="domcontentloaded", timeout=5000)
-            if resp and resp.status == 200:
-                # robots.txt is plain text, extract from <pre> or body
-                body = await page.inner_text("body")
+            # resp.status is the initial response; after 301 redirects
+            # Playwright follows them, so check the final page content
+            body = await page.inner_text("body")
+            final_ok = resp and (resp.status == 200 or (resp.status in (301, 302) and body.strip()))
+            if final_ok and body.strip():
                 page_result.accessible = True
                 page_result.robots_rules = self._parse_robots_rules(body)
                 page_result.raw_content = body[:500]
@@ -123,13 +125,13 @@ class GroundTruthCrawler:
         try:
             page = await context.new_page()
             resp = await page.goto(url, wait_until="domcontentloaded", timeout=5000)
-            if resp and resp.status == 200:
-                text = await page.content()
+            text = await page.content()
+            has_locs = "<loc>" in text.lower()
+            final_ok = resp and (resp.status == 200 or (resp.status in (301, 302) and has_locs))
+            if final_ok and has_locs:
                 page_result.accessible = True
-                # Count <loc> entries
                 loc_count = text.lower().count("<loc>")
                 page_result.sitemap_url_count = loc_count
-                # Extract first 3 <loc> URLs for verification
                 loc_matches = re.findall(r"<loc>\s*(.*?)\s*</loc>", text, re.IGNORECASE)
                 page_result.raw_content = "\n".join(loc_matches[:3])
             await page.close()
