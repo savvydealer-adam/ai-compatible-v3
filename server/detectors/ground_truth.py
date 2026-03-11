@@ -51,6 +51,22 @@ class GroundTruthCrawler:
             result.crawl_time = round(time.time() - start, 1)
             return result
 
+    async def _resolve_canonical_domain(self, context) -> str:
+        """Hit the homepage and see where we actually land (www vs non-www)."""
+        try:
+            page = await context.new_page()
+            await page.goto(f"https://{self.domain}/", wait_until="domcontentloaded", timeout=5000)
+            from urllib.parse import urlparse
+
+            final_host = urlparse(page.url).hostname or self.domain
+            await page.close()
+            if final_host != self.domain:
+                logger.info("Domain %s resolved to canonical: %s", self.domain, final_host)
+            return final_host
+        except Exception as e:
+            logger.debug("Canonical domain resolution failed: %s", e)
+            return self.domain
+
     async def _crawl_playwright(self) -> GroundTruthResult:
         """Crawl with Playwright headless Chromium."""
         from playwright.async_api import async_playwright
@@ -67,6 +83,9 @@ class GroundTruthCrawler:
             context.set_default_timeout(timeout_ms)
 
             try:
+                # Resolve canonical domain (www vs non-www)
+                self._canonical = await self._resolve_canonical_domain(context)
+
                 # 1. robots.txt (~2s)
                 robots_page = await self._crawl_robots(context)
                 pages.append(robots_page)
@@ -92,25 +111,24 @@ class GroundTruthCrawler:
         return GroundTruthResult(
             pages=pages,
             source="playwright",
-            domain=self.domain,
+            domain=self._canonical,
         )
 
     async def _crawl_robots(self, context) -> GroundTruthPage:
         """Crawl robots.txt and parse AI bot rules."""
-        url = f"https://{self.domain}/robots.txt"
+        domain = getattr(self, "_canonical", self.domain)
+        url = f"https://{domain}/robots.txt"
         page_result = GroundTruthPage(url=url, page_type="robots")
 
         try:
             page = await context.new_page()
             resp = await page.goto(url, wait_until="domcontentloaded", timeout=5000)
-            # resp.status is the initial response; after 301 redirects
-            # Playwright follows them, so check the final page content
-            body = await page.inner_text("body")
-            final_ok = resp and (resp.status == 200 or (resp.status in (301, 302) and body.strip()))
-            if final_ok and body.strip():
-                page_result.accessible = True
-                page_result.robots_rules = self._parse_robots_rules(body)
-                page_result.raw_content = body[:500]
+            if resp and resp.ok:
+                body = await page.inner_text("body")
+                if body.strip():
+                    page_result.accessible = True
+                    page_result.robots_rules = self._parse_robots_rules(body)
+                    page_result.raw_content = body[:500]
             await page.close()
         except Exception as e:
             logger.debug("robots.txt crawl failed: %s", e)
@@ -119,21 +137,21 @@ class GroundTruthCrawler:
 
     async def _crawl_sitemap(self, context) -> GroundTruthPage:
         """Crawl sitemap.xml and count URLs."""
-        url = f"https://{self.domain}/sitemap.xml"
+        domain = getattr(self, "_canonical", self.domain)
+        url = f"https://{domain}/sitemap.xml"
         page_result = GroundTruthPage(url=url, page_type="sitemap")
 
         try:
             page = await context.new_page()
             resp = await page.goto(url, wait_until="domcontentloaded", timeout=5000)
-            text = await page.content()
-            has_locs = "<loc>" in text.lower()
-            final_ok = resp and (resp.status == 200 or (resp.status in (301, 302) and has_locs))
-            if final_ok and has_locs:
-                page_result.accessible = True
-                loc_count = text.lower().count("<loc>")
-                page_result.sitemap_url_count = loc_count
-                loc_matches = re.findall(r"<loc>\s*(.*?)\s*</loc>", text, re.IGNORECASE)
-                page_result.raw_content = "\n".join(loc_matches[:3])
+            if resp and resp.ok:
+                text = await page.content()
+                if "<loc>" in text.lower():
+                    page_result.accessible = True
+                    loc_count = text.lower().count("<loc>")
+                    page_result.sitemap_url_count = loc_count
+                    loc_matches = re.findall(r"<loc>\s*(.*?)\s*</loc>", text, re.IGNORECASE)
+                    page_result.raw_content = "\n".join(loc_matches[:3])
             await page.close()
         except Exception as e:
             logger.debug("sitemap.xml crawl failed: %s", e)

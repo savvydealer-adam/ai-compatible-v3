@@ -807,7 +807,9 @@ class AILiveVerifyDetectorV2:
 
     async def verify(self) -> AILiveVerifyResultV2:
         """Run V2 verification against all configured providers."""
-        prompt = _build_v2_prompt(self.domain, self.ground_truth)
+        # Use canonical domain from ground truth (resolves www vs non-www)
+        domain = self.ground_truth.domain or self.domain
+        prompt = _build_v2_prompt(domain, self.ground_truth)
 
         # Launch all providers in parallel
         tasks: list[tuple[str, asyncio.Task]] = []
