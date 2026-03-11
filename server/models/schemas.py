@@ -160,6 +160,7 @@ class GroundTruthPage(BaseModel):
     vehicle_count: int = 0
     robots_rules: dict[str, str] = {}  # bot_name -> "allowed"|"blocked"
     sitemap_url_count: int = 0
+    raw_content: str = ""  # verifiable snippet for data comparison
 
 
 class GroundTruthResult(BaseModel):

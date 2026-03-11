@@ -186,6 +186,10 @@ function getGroundTruthValue(
       const p = gtPages["robots"];
       if (!p) return "";
       if (!p.accessible) return "Not found";
+      if (p.raw_content) {
+        const lines = p.raw_content.split("\n").slice(0, 3);
+        return lines.join(" | ");
+      }
       const blocked = Object.entries(p.robots_rules)
         .filter(([, v]) => v === "blocked")
         .map(([k]) => k);
@@ -194,7 +198,8 @@ function getGroundTruthValue(
     case "inventory": {
       const p = gtPages["srp"];
       if (!p) return "";
-      return p.accessible ? `${p.vehicle_count} vehicles` : "Not accessible";
+      if (!p.accessible) return "Not accessible";
+      return p.raw_content || `${p.vehicle_count} vehicles`;
     }
     case "vdp_price": {
       const p = gtPages["vdp"];
@@ -204,12 +209,18 @@ function getGroundTruthValue(
     case "vdp_vin": {
       const p = gtPages["vdp"];
       if (!p) return "";
-      return p.vin ? p.vin.substring(0, 11) + "..." : "No VIN found";
+      return p.vin || "No VIN found";
     }
     case "sitemap": {
       const p = gtPages["sitemap"];
       if (!p) return "";
-      return p.accessible ? `${p.sitemap_url_count} URLs` : "Not found";
+      if (!p.accessible) return "Not found";
+      const parts = [`${p.sitemap_url_count} URLs`];
+      if (p.raw_content) {
+        const urls = p.raw_content.split("\n").slice(0, 2);
+        parts.push(urls.map((u) => u.split("/").pop() || u).join(", "));
+      }
+      return parts.join(" — ");
     }
     default:
       return "";
@@ -225,36 +236,41 @@ function CheckCell({ check }: { check: AIVerifyCheck | null }) {
 
   if (check.could_access === false) {
     return (
-      <span className="inline-flex items-center gap-1 text-red-600 font-medium">
+      <span className="inline-flex items-center gap-1 text-red-600 font-medium" title="AI could not access this page">
         <X className="w-3 h-3" /> BLOCKED
       </span>
     );
   }
 
   if (check.could_access === true) {
+    const tooltip = check.data_expected
+      ? `Expected: ${check.data_expected}\nReturned: ${check.data_returned}`
+      : check.data_returned;
+    const scoreLabel = check.match_score >= 0.8 ? "" : ` (${Math.round(check.match_score * 100)}%)`;
+
     if (check.match_score >= 0.8) {
       return (
-        <span className="inline-flex items-center gap-1 text-green-600">
+        <span className="inline-flex items-center gap-1 text-green-600" title={tooltip}>
           <Check className="w-3 h-3" />
           {check.data_returned ? (
-            <span className="truncate max-w-[100px]" title={check.data_returned}>
-              {check.data_returned.substring(0, 30)}
+            <span className="truncate max-w-[120px]">
+              {check.data_returned.substring(0, 40)}
             </span>
           ) : (
-            "OK"
+            "Match"
           )}
         </span>
       );
     }
     return (
-      <span className="inline-flex items-center gap-1 text-yellow-600">
+      <span className="inline-flex items-center gap-1 text-yellow-600" title={tooltip}>
         <AlertCircle className="w-3 h-3" />
         {check.data_returned ? (
-          <span className="truncate max-w-[100px]" title={check.data_returned}>
-            {check.data_returned.substring(0, 30)}
+          <span className="truncate max-w-[120px]">
+            {check.data_returned.substring(0, 40)}{scoreLabel}
           </span>
         ) : (
-          "Partial"
+          `Partial${scoreLabel}`
         )}
       </span>
     );

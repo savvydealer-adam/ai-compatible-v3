@@ -308,38 +308,29 @@ class AILiveVerifyDetector:
 # ── V2: Ground-truth comparison system ──
 
 _V2_PROMPT_TEMPLATE = (
-    "Check these pages on {domain}:\n\n"
-    "1. ROBOTS: Visit https://{domain}/robots.txt - Does it block AI bots "
-    "like GPTBot, Claude-Web, PerplexityBot? List which are blocked.\n"
-    "2. INVENTORY: Visit {srp_url} - How many vehicles are listed? "
-    "Give the names and prices of the first 3 vehicles you see.\n"
-    "3. VDP: Visit {vdp_url} - What is the vehicle title, listed price, "
-    "and VIN (17-character alphanumeric code)?\n"
-    "4. SITEMAP: Visit https://{domain}/sitemap.xml - Does it exist? "
-    "Roughly how many URLs are listed?\n\n"
-    'If you cannot access any page, say "BLOCKED" for that section '
-    "and explain why.\n\n"
-    "Format your response exactly like this:\n"
-    "ROBOTS: [your findings]\n"
-    "INVENTORY: [your findings]\n"
-    "VDP: [your findings]\n"
-    "SITEMAP: [your findings]"
+    "I need you to fetch specific pages and return exact data from each.\n\n"
+    "1. ROBOTS: Fetch https://{domain}/robots.txt\n"
+    "   Copy the first 5 lines of text exactly as they appear.\n\n"
+    "2. INVENTORY: Fetch {srp_url}\n"
+    "   Return the names and prices of the first 3 vehicles listed.\n\n"
+    "3. VDP: Fetch {vdp_url}\n"
+    "   Return the vehicle price (e.g. $XX,XXX) and the 17-character VIN.\n\n"
+    "4. SITEMAP: Fetch https://{domain}/sitemap.xml\n"
+    "   Return the total number of <loc> entries and the first 3 URLs.\n\n"
+    'If you cannot access a page, respond with just "BLOCKED" for that section.\n\n'
+    "ROBOTS:\nINVENTORY:\nVDP:\nSITEMAP:"
 )
 
 _V2_PROMPT_NO_VDP = (
-    "Check these pages on {domain}:\n\n"
-    "1. ROBOTS: Visit https://{domain}/robots.txt - Does it block AI bots "
-    "like GPTBot, Claude-Web, PerplexityBot? List which are blocked.\n"
-    "2. SITEMAP: Visit https://{domain}/sitemap.xml - Does it exist? "
-    "Roughly how many URLs are listed?\n"
-    "3. HOMEPAGE: Visit https://{domain} - Can you access it? "
-    "What is the dealership name?\n\n"
-    'If you cannot access any page, say "BLOCKED" for that section '
-    "and explain why.\n\n"
-    "Format your response exactly like this:\n"
-    "ROBOTS: [your findings]\n"
-    "SITEMAP: [your findings]\n"
-    "HOMEPAGE: [your findings]"
+    "I need you to fetch specific pages and return exact data from each.\n\n"
+    "1. ROBOTS: Fetch https://{domain}/robots.txt\n"
+    "   Copy the first 5 lines of text exactly as they appear.\n\n"
+    "2. SITEMAP: Fetch https://{domain}/sitemap.xml\n"
+    "   Return the total number of <loc> entries and the first 3 URLs.\n\n"
+    "3. HOMEPAGE: Fetch https://{domain}\n"
+    "   Return the dealership name shown on the page.\n\n"
+    'If you cannot access a page, respond with just "BLOCKED" for that section.\n\n'
+    "ROBOTS:\nSITEMAP:\nHOMEPAGE:"
 )
 
 
@@ -373,91 +364,103 @@ def _parse_section(text: str, section: str) -> str:
 
 
 def _check_robots_response(section_text: str, ground_truth: GroundTruthResult) -> AIVerifyCheck:
-    """Compare robots section of AI response against ground truth.
-
-    For robots.txt the check is: could the AI *read* the file (not whether
-    the file blocks bots — that's separate scoring). The AI mentioning
-    "GPTBot is blocked from .js" does NOT mean the AI was blocked from
-    reading robots.txt.
-    """
+    """Compare robots section: do AI-returned lines appear in our raw robots.txt?"""
     gt_robots = next((p for p in ground_truth.pages if p.page_type == "robots"), None)
 
     check = AIVerifyCheck(check_type="robots")
     if not section_text:
         return check
 
-    check.data_returned = section_text[:200]
+    check.data_returned = section_text[:300]
 
-    # robots.txt is a plain text file — if the AI returned any substantive
-    # content about it, they could read it. Only mark blocked if the AI
-    # explicitly says it couldn't access/reach the robots.txt URL itself.
-    text_lower = section_text.lower()
-    page_inaccessible = any(
-        p in text_lower
-        for p in [
-            "unable to access",
-            "cannot access",
-            "couldn't access",
-            "could not access",
-            "unable to reach",
-            "unable to visit",
-            "not able to access",
-            "page not found",
-            "404",
-        ]
-    )
-    # If they mention bot rules or disallow directives, they read it fine
-    has_content = any(
-        w in text_lower for w in ["disallow", "allow", "user-agent", "block", "restrict"]
-    )
-
-    if has_content:
-        check.could_access = True
-    elif page_inaccessible:
+    # AI said "BLOCKED" explicitly
+    if section_text.strip().upper() == "BLOCKED" or _is_access_denied(section_text):
         check.could_access = False
-    else:
-        check.could_access = len(section_text.strip()) > 20
+        if gt_robots:
+            gt_lines = gt_robots.raw_content.splitlines()[:5]
+            check.data_expected = "\n".join(gt_lines) if gt_lines else "N/A"
+        check.match_score = 0.0
+        return check
 
-    if gt_robots:
-        check.data_expected = "exists" if gt_robots.accessible else "not found"
-        both_match = (check.could_access and gt_robots.accessible) or (
-            not check.could_access and not gt_robots.accessible
-        )
-        check.match_score = 1.0 if both_match else 0.0
+    if not gt_robots or not gt_robots.raw_content:
+        # No ground truth to compare against — treat as accessible if substantive
+        check.could_access = len(section_text.strip()) > 20
+        return check
+
+    # Compare: do lines from AI response appear as substrings in our raw content?
+    gt_raw = gt_robots.raw_content.lower()
+    gt_lines = [ln.strip() for ln in gt_robots.raw_content.splitlines()[:5] if ln.strip()]
+    check.data_expected = "\n".join(gt_lines)
+
+    ai_lines = [ln.strip() for ln in section_text.splitlines() if ln.strip()]
+    matched = 0
+    for ai_line in ai_lines:
+        if ai_line.lower() in gt_raw:
+            matched += 1
+
+    if matched >= 3 or (gt_lines and matched >= len(gt_lines)):
+        check.could_access = True
+        check.match_score = 1.0
+    elif matched >= 1:
+        check.could_access = True
+        check.match_score = round(matched / max(len(gt_lines), 1), 2)
+    else:
+        # AI returned text but none matches — they might have accessed a different version
+        check.could_access = len(section_text.strip()) > 20
+        check.match_score = 0.2 if check.could_access else 0.0
 
     return check
 
 
 def _check_inventory_response(section_text: str, ground_truth: GroundTruthResult) -> AIVerifyCheck:
-    """Compare inventory section against ground truth."""
+    """Compare inventory: do vehicle names from ground truth appear in AI response?"""
     gt_srp = next((p for p in ground_truth.pages if p.page_type == "srp"), None)
 
     check = AIVerifyCheck(check_type="inventory")
     if not section_text:
         return check
 
-    is_blocked = _is_access_denied(section_text)
-    check.could_access = not is_blocked
-    check.data_returned = section_text[:200]
+    check.data_returned = section_text[:300]
 
-    if gt_srp:
-        check.data_expected = f"{gt_srp.vehicle_count} vehicles"
-        if check.could_access and gt_srp.accessible:
-            # Try to extract a count from the response
-            count_match = re.search(r"(\d+)\s*(?:vehicle|car|listing|result)", section_text, re.I)
-            if count_match:
-                returned_count = int(count_match.group(1))
-                gt_count = gt_srp.vehicle_count
-                if gt_count > 0:
-                    ratio = min(returned_count, gt_count) / max(returned_count, gt_count)
-                    check.match_score = min(1.0, ratio)
-                else:
-                    check.match_score = 0.5
-            else:
-                # Got text back but no count — partial
-                check.match_score = 0.5
-        elif not check.could_access:
-            check.match_score = 0.0
+    if section_text.strip().upper() == "BLOCKED" or _is_access_denied(section_text):
+        check.could_access = False
+        if gt_srp:
+            check.data_expected = gt_srp.raw_content or f"{gt_srp.vehicle_count} vehicles"
+        check.match_score = 0.0
+        return check
+
+    check.could_access = True
+
+    if not gt_srp:
+        return check
+
+    check.data_expected = gt_srp.raw_content or f"{gt_srp.vehicle_count} vehicles"
+
+    score = 0.0
+    text_lower = section_text.lower()
+
+    # Check if vehicle names from ground truth appear in AI's response
+    if gt_srp.raw_content:
+        gt_vehicles = [v.strip() for v in gt_srp.raw_content.split(";") if v.strip()]
+        name_matches = 0
+        for vehicle in gt_vehicles:
+            # Match on year+make or year+model substring
+            parts = vehicle.lower().split()
+            if len(parts) >= 2 and any(p in text_lower for p in parts[:3]):
+                name_matches += 1
+        if gt_vehicles:
+            score = round(name_matches / len(gt_vehicles), 2)
+
+    # Also check count ratio as supplementary signal
+    count_match = re.search(r"(\d+)\s*(?:vehicle|car|listing|result)", section_text, re.I)
+    if count_match and gt_srp.vehicle_count > 0:
+        returned_count = int(count_match.group(1))
+        ratio = min(returned_count, gt_srp.vehicle_count) / max(
+            returned_count, gt_srp.vehicle_count
+        )
+        score = max(score, round(ratio * 0.8, 2))  # count alone caps at 0.8
+
+    check.match_score = min(1.0, score) if score > 0 else 0.3  # got text = at least partial
 
     return check
 
@@ -465,18 +468,24 @@ def _check_inventory_response(section_text: str, ground_truth: GroundTruthResult
 def _check_vdp_response(
     section_text: str, ground_truth: GroundTruthResult, check_type: str
 ) -> AIVerifyCheck:
-    """Compare VDP price or VIN against ground truth."""
+    """Compare VDP price or VIN: exact data matching."""
     gt_vdp = next((p for p in ground_truth.pages if p.page_type == "vdp"), None)
 
     check = AIVerifyCheck(check_type=check_type)
     if not section_text:
         return check
 
-    is_blocked = _is_access_denied(section_text)
-    check.could_access = not is_blocked
-    check.data_returned = section_text[:200]
+    if section_text.strip().upper() == "BLOCKED" or _is_access_denied(section_text):
+        check.could_access = False
+        if gt_vdp:
+            check.data_expected = gt_vdp.price if check_type == "vdp_price" else gt_vdp.vin
+        check.match_score = 0.0
+        return check
+
+    check.could_access = True
 
     if not gt_vdp:
+        check.data_returned = section_text[:200]
         return check
 
     if check_type == "vdp_price":
@@ -488,9 +497,16 @@ def _check_vdp_response(
             if _normalize_price(returned_price) == _normalize_price(gt_vdp.price):
                 check.match_score = 1.0
             else:
-                check.match_score = 0.3  # got a price but wrong
-        elif not check.could_access:
-            check.match_score = 0.0
+                # Close price (within $500) gets partial credit
+                try:
+                    ai_val = int(_normalize_price(returned_price))
+                    gt_val = int(_normalize_price(gt_vdp.price))
+                    if abs(ai_val - gt_val) <= 500:
+                        check.match_score = 0.5
+                    else:
+                        check.match_score = 0.3
+                except ValueError:
+                    check.match_score = 0.3
 
     elif check_type == "vdp_vin":
         returned_vin = _extract_vin(section_text)
@@ -498,34 +514,64 @@ def _check_vdp_response(
         check.data_expected = gt_vdp.vin
 
         if returned_vin and gt_vdp.vin:
-            if _match_vin(gt_vdp.vin, section_text):
+            if returned_vin.upper() == gt_vdp.vin.upper():
                 check.match_score = 1.0
             else:
                 check.match_score = 0.3
-        elif not check.could_access:
+        elif not returned_vin:
             check.match_score = 0.0
 
     return check
 
 
 def _check_sitemap_response(section_text: str, ground_truth: GroundTruthResult) -> AIVerifyCheck:
-    """Compare sitemap section against ground truth."""
+    """Compare sitemap: check URL count and whether AI returned known URLs."""
     gt_sitemap = next((p for p in ground_truth.pages if p.page_type == "sitemap"), None)
 
     check = AIVerifyCheck(check_type="sitemap")
     if not section_text:
         return check
 
-    is_blocked = _is_access_denied(section_text)
-    check.could_access = not is_blocked
-    check.data_returned = section_text[:200]
+    check.data_returned = section_text[:300]
 
-    if gt_sitemap:
-        check.data_expected = f"{gt_sitemap.sitemap_url_count} URLs"
-        both_match = (check.could_access and gt_sitemap.accessible) or (
-            not check.could_access and not gt_sitemap.accessible
-        )
-        check.match_score = 1.0 if both_match else 0.0
+    if section_text.strip().upper() == "BLOCKED" or _is_access_denied(section_text):
+        check.could_access = False
+        if gt_sitemap:
+            check.data_expected = f"{gt_sitemap.sitemap_url_count} URLs" + (
+                f"\n{gt_sitemap.raw_content}" if gt_sitemap.raw_content else ""
+            )
+        check.match_score = 0.0
+        return check
+
+    check.could_access = True
+
+    if not gt_sitemap:
+        return check
+
+    check.data_expected = f"{gt_sitemap.sitemap_url_count} URLs"
+    if gt_sitemap.raw_content:
+        check.data_expected += f"\n{gt_sitemap.raw_content}"
+
+    score = 0.0
+
+    # Check if any ground truth URLs appear in AI response
+    if gt_sitemap.raw_content:
+        gt_urls = [u.strip() for u in gt_sitemap.raw_content.split("\n") if u.strip()]
+        url_matches = sum(1 for u in gt_urls if u in section_text)
+        if gt_urls:
+            score = round(url_matches / len(gt_urls), 2)
+
+    # Count comparison
+    count_match = re.search(r"(\d[\d,]*)\s*(?:<loc>|url|entries|total)", section_text, re.I)
+    if not count_match:
+        count_match = re.search(r"(?:total|contains|found|has)\s*(\d[\d,]*)", section_text, re.I)
+    if count_match and gt_sitemap.sitemap_url_count > 0:
+        returned_count = int(count_match.group(1).replace(",", ""))
+        gt_count = gt_sitemap.sitemap_url_count
+        ratio = min(returned_count, gt_count) / max(returned_count, gt_count)
+        score = max(score, round(ratio * 0.8, 2))
+
+    check.match_score = min(1.0, score) if score > 0 else 0.3
 
     return check
 

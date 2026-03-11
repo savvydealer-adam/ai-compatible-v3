@@ -247,6 +247,7 @@ export interface GroundTruthPage {
   vehicle_count: number;
   robots_rules: Record<string, string>;
   sitemap_url_count: number;
+  raw_content: string;
 }
 
 export interface GroundTruthResult {

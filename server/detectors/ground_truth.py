@@ -108,6 +108,7 @@ class GroundTruthCrawler:
                 body = await page.inner_text("body")
                 page_result.accessible = True
                 page_result.robots_rules = self._parse_robots_rules(body)
+                page_result.raw_content = body[:500]
             await page.close()
         except Exception as e:
             logger.debug("robots.txt crawl failed: %s", e)
@@ -128,6 +129,9 @@ class GroundTruthCrawler:
                 # Count <loc> entries
                 loc_count = text.lower().count("<loc>")
                 page_result.sitemap_url_count = loc_count
+                # Extract first 3 <loc> URLs for verification
+                loc_matches = re.findall(r"<loc>\s*(.*?)\s*</loc>", text, re.IGNORECASE)
+                page_result.raw_content = "\n".join(loc_matches[:3])
             await page.close()
         except Exception as e:
             logger.debug("sitemap.xml crawl failed: %s", e)
@@ -155,13 +159,19 @@ class GroundTruthCrawler:
 
             page_result.vehicle_count = vehicle_count
 
-            # Try to get vehicle title from first result
+            # Extract first 3 vehicle names for verification
+            vehicle_names: list[str] = []
             h_tags = await page.query_selector_all("h2, h3")
-            for h in h_tags[:5]:
+            for h in h_tags[:20]:
                 text = (await h.inner_text()).strip()
                 if re.search(r"\d{4}\s+\w+", text):
-                    page_result.vehicle_title = text
-                    break
+                    if not page_result.vehicle_title:
+                        page_result.vehicle_title = text
+                    vehicle_names.append(text)
+                    if len(vehicle_names) >= 3:
+                        break
+
+            page_result.raw_content = "; ".join(vehicle_names)
 
             await page.close()
         except Exception as e:
@@ -199,6 +209,16 @@ class GroundTruthCrawler:
                 title = await page.title()
                 page_result.vehicle_title = title
 
+            # Build raw_content snippet for verification
+            parts = []
+            if page_result.vehicle_title:
+                parts.append(page_result.vehicle_title)
+            if page_result.price:
+                parts.append(page_result.price)
+            if page_result.vin:
+                parts.append(page_result.vin)
+            page_result.raw_content = " | ".join(parts)
+
             await page.close()
         except Exception as e:
             logger.debug("VDP crawl failed: %s", e)
@@ -216,36 +236,51 @@ class GroundTruthCrawler:
             for bot in ROBOTS_AI_BOTS:
                 perm = bot_permissions.get(bot, "not_specified")
                 rules[bot] = "blocked" if perm == "blocked" else "allowed"
+            raw_robots = self._robots_data.get("raw_robots_txt", "")
             pages.append(
                 GroundTruthPage(
                     url=f"https://{self.domain}/robots.txt",
                     page_type="robots",
                     accessible=self._robots_data.get("robots_txt_exists", False),
                     robots_rules=rules,
+                    raw_content=raw_robots[:500] if raw_robots else "",
                 )
             )
 
         # sitemap from existing data
         if self._sitemap_data:
+            sample_urls = self._sitemap_data.get("sample_urls", [])
             pages.append(
                 GroundTruthPage(
                     url=self._sitemap_data.get("sitemap_url", f"https://{self.domain}/sitemap.xml"),
                     page_type="sitemap",
                     accessible=self._sitemap_data.get("sitemap_found", False),
                     sitemap_url_count=self._sitemap_data.get("total_urls", 0),
+                    raw_content="\n".join(sample_urls[:3]),
                 )
             )
 
         # VDP from existing content info
         if self._vdp_content_info and self.vdp_urls:
+            vdp_parts = []
+            vdp_title = self._vdp_content_info.get("vehicle_title", "")
+            vdp_price = self._vdp_content_info.get("price_text", "")
+            vdp_vin = self._vdp_content_info.get("vin_text", "")
+            if vdp_title:
+                vdp_parts.append(vdp_title)
+            if vdp_price:
+                vdp_parts.append(vdp_price)
+            if vdp_vin:
+                vdp_parts.append(vdp_vin)
             pages.append(
                 GroundTruthPage(
                     url=self.vdp_urls[0],
                     page_type="vdp",
                     accessible=True,
-                    price=self._vdp_content_info.get("price_text", ""),
-                    vin=self._vdp_content_info.get("vin_text", ""),
-                    vehicle_title=self._vdp_content_info.get("vehicle_title", ""),
+                    price=vdp_price,
+                    vin=vdp_vin,
+                    vehicle_title=vdp_title,
+                    raw_content=" | ".join(vdp_parts),
                 )
             )
 
