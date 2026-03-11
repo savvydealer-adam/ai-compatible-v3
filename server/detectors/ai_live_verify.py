@@ -373,16 +373,50 @@ def _parse_section(text: str, section: str) -> str:
 
 
 def _check_robots_response(section_text: str, ground_truth: GroundTruthResult) -> AIVerifyCheck:
-    """Compare robots section of AI response against ground truth."""
+    """Compare robots section of AI response against ground truth.
+
+    For robots.txt the check is: could the AI *read* the file (not whether
+    the file blocks bots — that's separate scoring). The AI mentioning
+    "GPTBot is blocked from .js" does NOT mean the AI was blocked from
+    reading robots.txt.
+    """
     gt_robots = next((p for p in ground_truth.pages if p.page_type == "robots"), None)
 
     check = AIVerifyCheck(check_type="robots")
     if not section_text:
         return check
 
-    is_blocked = _is_access_denied(section_text)
-    check.could_access = not is_blocked
     check.data_returned = section_text[:200]
+
+    # robots.txt is a plain text file — if the AI returned any substantive
+    # content about it, they could read it. Only mark blocked if the AI
+    # explicitly says it couldn't access/reach the robots.txt URL itself.
+    text_lower = section_text.lower()
+    page_inaccessible = any(
+        p in text_lower
+        for p in [
+            "unable to access",
+            "cannot access",
+            "couldn't access",
+            "could not access",
+            "unable to reach",
+            "unable to visit",
+            "not able to access",
+            "page not found",
+            "404",
+        ]
+    )
+    # If they mention bot rules or disallow directives, they read it fine
+    has_content = any(
+        w in text_lower for w in ["disallow", "allow", "user-agent", "block", "restrict"]
+    )
+
+    if has_content:
+        check.could_access = True
+    elif page_inaccessible:
+        check.could_access = False
+    else:
+        check.could_access = len(section_text.strip()) > 20
 
     if gt_robots:
         check.data_expected = "exists" if gt_robots.accessible else "not found"
