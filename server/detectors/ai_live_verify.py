@@ -44,6 +44,29 @@ def _is_access_denied(text: str) -> bool:
     return any(p in text_lower for p in _ACCESS_DENIED_PATTERNS)
 
 
+_NOT_FOUND_PATTERNS = [
+    "not found",
+    "404",
+    "does not exist",
+    "doesn't exist",
+    "no robots.txt",
+    "no sitemap",
+    "inaccessible",
+    "unavailable",
+    "missing",
+]
+
+
+def _is_not_found(text: str) -> bool:
+    """Check if AI response indicates the page doesn't exist (404, not found).
+
+    This is distinct from being blocked — a 404 means the AI reached the
+    server successfully but the file isn't there.
+    """
+    text_lower = text.lower()
+    return any(p in text_lower for p in _NOT_FOUND_PATTERNS)
+
+
 VERIFY_PROMPT_VDP = """Visit this URL: {vdp_url}
 
 This is a vehicle detail page on a car dealership website.
@@ -317,7 +340,11 @@ _V2_PROMPT_TEMPLATE = (
     "   Return the vehicle price (e.g. $XX,XXX) and the 17-character VIN.\n\n"
     "4. SITEMAP: Fetch https://{domain}/sitemap.xml\n"
     "   Return the total number of <loc> entries and the first 3 URLs.\n\n"
-    'If you cannot access a page, respond with just "BLOCKED" for that section.\n\n'
+    "IMPORTANT: For each section, respond with one of:\n"
+    "- The requested data if the page exists\n"
+    '- "NOT FOUND" if the page returns a 404 or does not exist\n'
+    '- "BLOCKED" only if you cannot reach the server at all '
+    "(connection refused, timeout, Cloudflare block)\n\n"
     "ROBOTS:\nINVENTORY:\nVDP:\nSITEMAP:"
 )
 
@@ -329,7 +356,11 @@ _V2_PROMPT_NO_VDP = (
     "   Return the total number of <loc> entries and the first 3 URLs.\n\n"
     "3. HOMEPAGE: Fetch https://{domain}\n"
     "   Return the dealership name shown on the page.\n\n"
-    'If you cannot access a page, respond with just "BLOCKED" for that section.\n\n'
+    "IMPORTANT: For each section, respond with one of:\n"
+    "- The requested data if the page exists\n"
+    '- "NOT FOUND" if the page returns a 404 or does not exist\n'
+    '- "BLOCKED" only if you cannot reach the server at all '
+    "(connection refused, timeout, Cloudflare block)\n\n"
     "ROBOTS:\nSITEMAP:\nHOMEPAGE:"
 )
 
@@ -373,8 +404,27 @@ def _check_robots_response(section_text: str, ground_truth: GroundTruthResult) -
 
     check.data_returned = section_text[:300]
 
-    # AI said "BLOCKED" explicitly
-    if section_text.strip().upper() == "BLOCKED" or _is_access_denied(section_text):
+    # AI says file doesn't exist (404) — that means it reached the server
+    ai_says_not_found = section_text.strip().upper() == "NOT FOUND" or _is_not_found(section_text)
+    ai_says_blocked = section_text.strip().upper() == "BLOCKED" or (
+        _is_access_denied(section_text) and not ai_says_not_found
+    )
+
+    if ai_says_not_found:
+        # AI reached the server and correctly identified 404
+        check.could_access = True
+        if gt_robots and not gt_robots.accessible:
+            # Both agree: file doesn't exist — perfect match
+            check.data_expected = "Not found"
+            check.match_score = 1.0
+        elif gt_robots and gt_robots.accessible:
+            # We found it but AI says 404 — mismatch
+            first_line = gt_robots.raw_content.splitlines()[0] if gt_robots.raw_content else ""
+            check.data_expected = first_line or "Exists"
+            check.match_score = 0.2
+        return check
+
+    if ai_says_blocked:
         check.could_access = False
         if gt_robots:
             gt_lines = gt_robots.raw_content.splitlines()[:5]
@@ -383,8 +433,10 @@ def _check_robots_response(section_text: str, ground_truth: GroundTruthResult) -
         return check
 
     if not gt_robots or not gt_robots.raw_content:
-        # No ground truth to compare against — treat as accessible if substantive
+        # No ground truth raw content — treat as accessible if substantive
         check.could_access = len(section_text.strip()) > 20
+        if gt_robots:
+            check.data_expected = "Not found" if not gt_robots.accessible else "Exists"
         return check
 
     # Compare: do lines from AI response appear as substrings in our raw content?
@@ -422,7 +474,22 @@ def _check_inventory_response(section_text: str, ground_truth: GroundTruthResult
 
     check.data_returned = section_text[:300]
 
-    if section_text.strip().upper() == "BLOCKED" or _is_access_denied(section_text):
+    ai_says_not_found = section_text.strip().upper() == "NOT FOUND" or _is_not_found(section_text)
+    ai_says_blocked = section_text.strip().upper() == "BLOCKED" or (
+        _is_access_denied(section_text) and not ai_says_not_found
+    )
+
+    if ai_says_not_found:
+        check.could_access = True
+        if gt_srp and not gt_srp.accessible:
+            check.data_expected = "Not found"
+            check.match_score = 1.0
+        elif gt_srp:
+            check.data_expected = gt_srp.raw_content or f"{gt_srp.vehicle_count} vehicles"
+            check.match_score = 0.2
+        return check
+
+    if ai_says_blocked:
         check.could_access = False
         if gt_srp:
             check.data_expected = gt_srp.raw_content or f"{gt_srp.vehicle_count} vehicles"
@@ -475,7 +542,22 @@ def _check_vdp_response(
     if not section_text:
         return check
 
-    if section_text.strip().upper() == "BLOCKED" or _is_access_denied(section_text):
+    ai_says_not_found = section_text.strip().upper() == "NOT FOUND" or _is_not_found(section_text)
+    ai_says_blocked = section_text.strip().upper() == "BLOCKED" or (
+        _is_access_denied(section_text) and not ai_says_not_found
+    )
+
+    if ai_says_not_found:
+        check.could_access = True
+        if gt_vdp and not gt_vdp.accessible:
+            check.data_expected = "Not found"
+            check.match_score = 1.0
+        elif gt_vdp:
+            check.data_expected = gt_vdp.price if check_type == "vdp_price" else gt_vdp.vin
+            check.match_score = 0.2
+        return check
+
+    if ai_says_blocked:
         check.could_access = False
         if gt_vdp:
             check.data_expected = gt_vdp.price if check_type == "vdp_price" else gt_vdp.vin
@@ -534,7 +616,23 @@ def _check_sitemap_response(section_text: str, ground_truth: GroundTruthResult) 
 
     check.data_returned = section_text[:300]
 
-    if section_text.strip().upper() == "BLOCKED" or _is_access_denied(section_text):
+    # AI says file doesn't exist (404) — that means it reached the server
+    ai_says_not_found = section_text.strip().upper() == "NOT FOUND" or _is_not_found(section_text)
+    ai_says_blocked = section_text.strip().upper() == "BLOCKED" or (
+        _is_access_denied(section_text) and not ai_says_not_found
+    )
+
+    if ai_says_not_found:
+        check.could_access = True
+        if gt_sitemap and not gt_sitemap.accessible:
+            check.data_expected = "Not found"
+            check.match_score = 1.0
+        elif gt_sitemap and gt_sitemap.accessible:
+            check.data_expected = f"{gt_sitemap.sitemap_url_count} URLs"
+            check.match_score = 0.2
+        return check
+
+    if ai_says_blocked:
         check.could_access = False
         if gt_sitemap:
             check.data_expected = f"{gt_sitemap.sitemap_url_count} URLs" + (
