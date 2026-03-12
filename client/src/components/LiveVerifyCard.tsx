@@ -58,6 +58,7 @@ function LiveVerifyCardV2({ data }: { data: AILiveVerifyResultV2 }) {
     gemini: "Gemini",
     kimi: "Kimi",
     anthropic: "Claude",
+    perplexity: "Perplexity",
   };
 
   // Count accessible providers

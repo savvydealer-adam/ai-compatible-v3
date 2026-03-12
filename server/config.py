@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     gemini_api_key: str = ""
     kimi_api_key: str = ""
+    perplexity_api_key: str = ""
     ai_verify_enabled: bool = False
     ai_verify_timeout: float = 30.0
     playwright_timeout: float = 20.0

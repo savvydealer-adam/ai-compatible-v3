@@ -18,7 +18,30 @@ def generate_recommendations(issues: list[Issue], analysis: dict) -> list[str]:
             "Allow all AI crawlers for maximum visibility."
         )
 
-    # Priority 1/2: Critical blocking issues
+    # Priority 1.5: Narrow whitelist warning
+    has_narrow_whitelist = any(
+        "narrow ai whitelist" in i.message.lower() for i in issues
+    )
+    if has_narrow_whitelist:
+        recs.append(
+            "Your site uses a narrow AI whitelist — major providers like ChatGPT "
+            "can access your inventory, but smaller AI services are blocked. "
+            "This limits your dealership's visibility in emerging AI platforms "
+            "that could drive qualified traffic."
+        )
+
+    # Priority 1.5: DC IP block (not a critical AI block)
+    has_dc_block = any(
+        "datacenter ips" in i.message.lower() for i in issues
+    )
+    if has_dc_block and not has_whitelist:
+        recs.append(
+            "Your site blocks datacenter IPs, which affects automated testing "
+            "but does not block major AI providers. Consider allowing datacenter "
+            "access so third-party tools can audit your AI compatibility."
+        )
+
+    # Priority 1/2: Critical blocking issues (true AI blocks only)
     blocking_criticals = [
         i
         for i in issues

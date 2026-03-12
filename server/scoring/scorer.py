@@ -34,11 +34,17 @@ class AICompatibilityScorer:
         discover_score, discover_details = self._score_discoverability(analysis, issues)
 
         # Apply blocking multiplier to non-blocking categories
-        if site_blocked:
+        blocking_type = analysis.get("base_analysis", {}).get("blocking_type", "")
+        if site_blocked and blocking_type != "datacenter_ip":
             structured_score = 0
-            structured_details.append("Zeroed: site is blocked")
+            structured_details.append("Zeroed: site is blocked to AI")
             discover_score = 0
-            discover_details.append("Zeroed: site is blocked")
+            discover_details.append("Zeroed: site is blocked to AI")
+        elif site_blocked and blocking_type == "datacenter_ip":
+            # DC IP block — can't verify schema/discoverability from our server
+            # but don't penalize since AI providers can access
+            structured_details.append("Could not verify (datacenter IP blocked)")
+            discover_details.append("Could not verify (datacenter IP blocked)")
         elif multiplier < 1.0:
             structured_score = int(structured_score * multiplier)
             discover_score = int(discover_score * multiplier)
@@ -88,8 +94,11 @@ class AICompatibilityScorer:
 
     def _blocking_multiplier(self, analysis: dict) -> float:
         """Calculate multiplier for structured data / discoverability based on blocking severity."""
-        if analysis.get("site_blocked"):
+        blocking_type = analysis.get("base_analysis", {}).get("blocking_type", "")
+        if analysis.get("site_blocked") and blocking_type != "datacenter_ip":
             return 0.0
+        if analysis.get("site_blocked") and blocking_type == "datacenter_ip":
+            return 1.0  # Don't penalize — AI providers can access
 
         base = analysis.get("base_analysis", {})
         if base.get("js_challenge") or base.get("captcha_detected"):
@@ -131,8 +140,80 @@ class AICompatibilityScorer:
         has_v2_verify = "ai_live_verify_v2" in analysis
         ai_verify_enabled = has_v2_verify
 
-        # Site fully blocked — capped at 2-5 points
+        # Site fully blocked — check if DC IP block vs true AI block
         if analysis.get("site_blocked"):
+            blocking_type = base.get("blocking_type", "")
+
+            if blocking_type == "datacenter_ip":
+                # DC IP block only — AI providers CAN access
+                score = 5
+                details.append("Datacenter IP blocked, AI providers have access (+5)")
+                issues.append(
+                    Issue(
+                        severity="warning",
+                        category="blocking",
+                        message=(
+                            "Site blocks datacenter IPs but major AI providers "
+                            "can access — this is NOT an AI block"
+                        ),
+                        recommendation=(
+                            "Consider removing IP-based blocking to ensure "
+                            "all AI services can access your site"
+                        ),
+                    )
+                )
+
+                # Add AI verify score (up to 10 pts)
+                if ai_verify_enabled:
+                    v2_data = analysis.get("ai_live_verify_v2", {})
+                    ai_score = v2_data.get("ai_verify_score", 0.0)
+                    ai_pts = int(round(ai_score))
+                    score += ai_pts
+                    details.append(f"AI Live Verify (+{ai_pts}/10)")
+
+                    # Check for narrow whitelist
+                    providers = v2_data.get("providers", [])
+                    accessible = [
+                        p for p in providers
+                        if p.get("overall_access") in ("full", "partial")
+                    ]
+                    blocked_prov = [
+                        p for p in providers
+                        if p.get("overall_access") == "blocked"
+                    ]
+                    for p in accessible:
+                        pname = p.get("provider_name", "unknown")
+                        details.append(f"  {pname}: CAN access")
+                    for p in blocked_prov:
+                        pname = p.get("provider_name", "unknown")
+                        details.append(f"  {pname}: BLOCKED")
+
+                    if accessible and blocked_prov:
+                        a_names = ", ".join(
+                            p.get("provider_name", "?") for p in accessible
+                        )
+                        b_names = ", ".join(
+                            p.get("provider_name", "?") for p in blocked_prov
+                        )
+                        issues.append(
+                            Issue(
+                                severity="warning",
+                                category="blocking",
+                                message=(
+                                    f"Narrow AI whitelist: {a_names} allowed, "
+                                    f"{b_names} blocked"
+                                ),
+                                recommendation=(
+                                    "Only whitelisting top AI models is a strategic "
+                                    "risk — smaller AI services that could drive "
+                                    "traffic to your dealership are being turned away"
+                                ),
+                            )
+                        )
+
+                return score, details
+
+            # Truly blocked (ai_block or unknown)
             has_cf = base.get("cloudflare_detected", False)
             has_403 = base.get("forbidden_access", False)
             has_js = base.get("js_challenge", False)
@@ -149,6 +230,15 @@ class AICompatibilityScorer:
                     message="Site is blocked to AI crawlers",
                 )
             )
+
+            # Still add AI verify score if available
+            if ai_verify_enabled:
+                v2_data = analysis.get("ai_live_verify_v2", {})
+                ai_score = v2_data.get("ai_verify_score", 0.0)
+                ai_pts = int(round(ai_score))
+                score += ai_pts
+                details.append(f"AI Live Verify (+{ai_pts}/10)")
+
             return score, details
 
         # A. Robots.txt AI bot permissions (max 10 old / max 5 with V2)

@@ -793,6 +793,8 @@ async def _verify_provider_v2(provider: str, prompt: str) -> AIProviderVerificat
             text = await _call_gemini(prompt)
         elif provider == "anthropic":
             text = await _call_claude(prompt)
+        elif provider == "perplexity":
+            text = await _call_perplexity(prompt)
         else:
             result.error = f"Unknown provider: {provider}"
             return result
@@ -863,6 +865,23 @@ async def _call_gemini(prompt: str) -> str:
     return response.text or ""
 
 
+async def _call_perplexity(prompt: str) -> str:
+    from openai import AsyncOpenAI
+
+    client = AsyncOpenAI(
+        api_key=settings.perplexity_api_key,
+        base_url="https://api.perplexity.ai",
+    )
+    response = await asyncio.wait_for(
+        client.chat.completions.create(
+            model="sonar",
+            messages=[{"role": "user", "content": prompt}],
+        ),
+        timeout=settings.ai_verify_timeout,
+    )
+    return response.choices[0].message.content or ""
+
+
 async def _call_claude(prompt: str) -> str:
     from anthropic import AsyncAnthropic
 
@@ -908,7 +927,11 @@ class AILiveVerifyDetectorV2:
             tasks.append(("openai", asyncio.create_task(_verify_provider_v2("openai", prompt))))
         if settings.gemini_api_key:
             tasks.append(("gemini", asyncio.create_task(_verify_provider_v2("gemini", prompt))))
-        if settings.kimi_api_key:
+        if settings.perplexity_api_key:
+            tasks.append(
+                ("perplexity", asyncio.create_task(_verify_provider_v2("perplexity", prompt)))
+            )
+        elif settings.kimi_api_key:
             tasks.append(("kimi", asyncio.create_task(_verify_provider_v2("kimi", prompt))))
         if settings.anthropic_api_key:
             tasks.append(

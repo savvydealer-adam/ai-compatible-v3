@@ -186,6 +186,10 @@ class AnalysisOrchestrator:
                             blocking_info.blocking_type = "datacenter_ip"
                         elif all_blocked:
                             blocking_info.blocking_type = "ai_block"
+
+                        analysis_data["base_analysis"]["blocking_type"] = (
+                            blocking_info.blocking_type
+                        )
                 else:
                     # Full parallel analysis
                     (
