@@ -204,9 +204,11 @@ class AICompatibilityScorer:
                                     f"{b_names} blocked"
                                 ),
                                 recommendation=(
-                                    "Only whitelisting top AI models is a strategic "
-                                    "risk — smaller AI services that could drive "
-                                    "traffic to your dealership are being turned away"
+                                    "Your website provider is selectively whitelisting "
+                                    "only certain AI platforms while blocking others — "
+                                    "including major platforms like Google Gemini. "
+                                    "This limits your dealership's reach in AI-powered "
+                                    "vehicle search."
                                 ),
                             )
                         )

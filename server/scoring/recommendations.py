@@ -23,11 +23,22 @@ def generate_recommendations(issues: list[Issue], analysis: dict) -> list[str]:
         "narrow ai whitelist" in i.message.lower() for i in issues
     )
     if has_narrow_whitelist:
+        # Build specific provider list from issues
+        blocked_names = []
+        for i in issues:
+            if "narrow ai whitelist" in i.message.lower():
+                # Extract blocked names from "Narrow AI whitelist: X allowed, Y, Z blocked"
+                if "blocked" in i.message:
+                    parts = i.message.split("blocked")[0]
+                    if "," in parts:
+                        after_comma = parts.rsplit(",", 1)[-1].strip()
+                        blocked_names.append(after_comma)
         recs.append(
-            "Your site uses a narrow AI whitelist — major providers like ChatGPT "
-            "can access your inventory, but smaller AI services are blocked. "
-            "This limits your dealership's visibility in emerging AI platforms "
-            "that could drive qualified traffic."
+            "Your site uses a narrow AI whitelist — only select providers (likely OpenAI/ChatGPT) "
+            "can access your inventory, while other major AI platforms including Google Gemini "
+            "and Perplexity are blocked. This severely limits your dealership's visibility. "
+            "As AI-powered car shopping grows, being invisible to most AI platforms "
+            "means losing potential buyers who use those services to research vehicles."
         )
 
     # Priority 1.5: DC IP block (not a critical AI block)
