@@ -144,9 +144,12 @@ class AnalysisOrchestrator:
                         blocking_info.cloudflare_tier_signals
                     )
 
-                    # Live AI verification on blocked sites (V2)
+                    # Live AI verification on blocked sites — discovery mode
+                    # Our server is DC-blocked, so AI providers scrape independently
                     if settings.ai_verify_enabled:
-                        self._update_progress(analysis_id, "Ground truth crawl (blocked)", 40)
+                        self._update_progress(
+                            analysis_id, "AI discovery scrape (site blocked us)", 40
+                        )
                         from server.detectors.ground_truth import GroundTruthCrawler
 
                         gt_crawler = GroundTruthCrawler(
@@ -155,13 +158,34 @@ class AnalysisOrchestrator:
                         )
                         ground_truth_result = await gt_crawler.crawl()
 
-                        self._update_progress(analysis_id, "AI verification (V2)", 55)
+                        self._update_progress(
+                            analysis_id,
+                            "AI providers accessing site independently",
+                            55,
+                        )
                         from server.detectors.ai_live_verify import AILiveVerifyDetectorV2
 
-                        verify_v2 = AILiveVerifyDetectorV2(domain, ground_truth_result)
+                        verify_v2 = AILiveVerifyDetectorV2(
+                            domain, ground_truth_result, discovery_mode=True
+                        )
                         verify_result_v2 = await verify_v2.verify()
                         analysis_data["ai_live_verify_v2"] = verify_result_v2.model_dump()
                         analysis_data["ai_live_verify"] = verify_result_v2.model_dump()
+
+                        # Classify blocking type based on AI provider results
+                        providers = verify_result_v2.providers
+                        non_error = [p for p in providers if p.overall_access != "error"]
+                        any_accessible = any(
+                            p.overall_access in ("full", "partial") for p in non_error
+                        )
+                        all_blocked = all(
+                            p.overall_access == "blocked" for p in non_error
+                        ) and len(non_error) > 0
+
+                        if any_accessible:
+                            blocking_info.blocking_type = "datacenter_ip"
+                        elif all_blocked:
+                            blocking_info.blocking_type = "ai_block"
                 else:
                     # Full parallel analysis
                     (

@@ -75,6 +75,7 @@ class BlockingInfo(BaseModel):
     details: list[str] = []
     cloudflare_blocking_tier: str = "none"
     cloudflare_tier_signals: list[str] = []
+    blocking_type: str = ""  # "datacenter_ip", "ai_block", "" (unknown)
 
 
 class MarkdownAgentsInfo(BaseModel):

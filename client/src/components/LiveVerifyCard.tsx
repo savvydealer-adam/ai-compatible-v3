@@ -43,8 +43,9 @@ function LiveVerifyCardV2({ data }: { data: AILiveVerifyResultV2 }) {
     }
   }
 
-  const checkTypes = ["robots", "inventory", "vdp_price", "vdp_vin", "sitemap"];
+  const checkTypes = ["homepage", "robots", "inventory", "vdp_price", "vdp_vin", "sitemap"];
   const checkLabels: Record<string, string> = {
+    homepage: "Homepage",
     robots: "robots.txt",
     inventory: "Inventory",
     vdp_price: "VDP Price",
@@ -56,6 +57,7 @@ function LiveVerifyCardV2({ data }: { data: AILiveVerifyResultV2 }) {
     openai: "ChatGPT",
     gemini: "Gemini",
     kimi: "Kimi",
+    anthropic: "Claude",
   };
 
   // Count accessible providers
@@ -182,6 +184,8 @@ function getGroundTruthValue(
   gtPages: Record<string, GroundTruthPage | undefined>
 ): string {
   switch (checkType) {
+    case "homepage":
+      return "N/A (AI discovery)";
     case "robots": {
       const p = gtPages["robots"];
       if (!p) return "";

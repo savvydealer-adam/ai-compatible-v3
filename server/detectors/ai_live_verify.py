@@ -364,6 +364,36 @@ _V2_PROMPT_NO_VDP = (
     "ROBOTS:\nSITEMAP:\nHOMEPAGE:"
 )
 
+# Discovery prompt: used when our server is DC-blocked and we have no ground truth.
+# AI providers navigate the site themselves to find inventory/VDP data.
+_DISCOVERY_PROMPT = (
+    "I need you to test whether a car dealership website is accessible to AI.\n"
+    "Visit each page below and return the exact data requested.\n\n"
+    "1. HOMEPAGE: Visit https://{domain}\n"
+    "   What is the dealership name? What vehicle brands do they sell?\n\n"
+    "2. ROBOTS: Fetch https://{domain}/robots.txt\n"
+    "   Copy the first 5 lines of text exactly as they appear.\n\n"
+    "3. INVENTORY: Find the vehicle inventory page. Try these URLs in order:\n"
+    "   - https://{domain}/new-inventory/\n"
+    "   - https://{domain}/used-inventory/\n"
+    "   - https://{domain}/inventory/\n"
+    "   - https://{domain}/searchnew.aspx\n"
+    "   - https://{domain}/searchused.aspx\n"
+    "   Return the names and prices of the first 3 vehicles listed.\n"
+    "   Include the exact URL where you found the inventory.\n\n"
+    "4. VDP: From the inventory, click through to any single vehicle detail page.\n"
+    "   Return: the vehicle name (Year Make Model), the listed price (e.g. $XX,XXX),\n"
+    "   the 17-character VIN, and the exact URL of the detail page.\n\n"
+    "5. SITEMAP: Fetch https://{domain}/sitemap.xml\n"
+    "   Return the total number of <loc> entries and the first 3 URLs.\n\n"
+    "IMPORTANT: For each section, respond with one of:\n"
+    "- The requested data if the page exists\n"
+    '- "NOT FOUND" if the page returns a 404 or does not exist\n'
+    '- "BLOCKED" only if you cannot reach the server at all '
+    "(connection refused, timeout, Cloudflare block)\n\n"
+    "HOMEPAGE:\nROBOTS:\nINVENTORY:\nVDP:\nSITEMAP:"
+)
+
 
 def _build_v2_prompt(domain: str, ground_truth: GroundTruthResult) -> str:
     """Build the comprehensive V2 prompt from ground truth pages."""
@@ -388,8 +418,9 @@ def _build_v2_prompt(domain: str, ground_truth: GroundTruthResult) -> str:
 
 def _parse_section(text: str, section: str) -> str:
     """Extract a named section from AI response (e.g. 'ROBOTS: ...')."""
-    next_sections = r"ROBOTS|INVENTORY|VDP|SITEMAP|HOMEPAGE"
-    pattern = rf"(?:^|\n)\s*{section}\s*:\s*(.*?)(?=\n\s*(?:{next_sections})\s*:|$)"
+    sections = r"HOMEPAGE|ROBOTS|INVENTORY|VDP|SITEMAP"
+    num = r"(?:\d+\.\s*)?"
+    pattern = rf"(?:^|\n)\s*{num}{section}\s*:\s*(.*?)(?=\n\s*{num}(?:{sections})\s*:|$)"
     match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
     return match.group(1).strip() if match else ""
 
@@ -674,6 +705,33 @@ def _check_sitemap_response(section_text: str, ground_truth: GroundTruthResult) 
     return check
 
 
+def _check_homepage_response(section_text: str) -> AIVerifyCheck:
+    """Check if AI could access the homepage (discovery mode)."""
+    check = AIVerifyCheck(check_type="homepage")
+    if not section_text:
+        return check
+
+    check.data_returned = section_text[:300]
+
+    ai_says_blocked = section_text.strip().upper() == "BLOCKED" or (
+        _is_access_denied(section_text) and not _is_not_found(section_text)
+    )
+
+    if ai_says_blocked:
+        check.could_access = False
+        check.match_score = 0.0
+        return check
+
+    # Any substantive response means the AI accessed the page
+    if len(section_text.strip()) > 20:
+        check.could_access = True
+        check.match_score = 1.0
+    else:
+        check.could_access = None
+
+    return check
+
+
 def _calculate_provider_score(checks: list[AIVerifyCheck]) -> tuple[float, str]:
     """Calculate access score (0-10) and overall access status for a provider.
 
@@ -698,6 +756,8 @@ def _calculate_provider_score(checks: list[AIVerifyCheck]) -> tuple[float, str]:
             score += 3.0 * max(0.5, check.match_score)
         elif check.check_type == "sitemap":
             score += 2.0
+        elif check.check_type == "homepage":
+            score += 1.0
 
         if check.could_access is True:
             checks_accessible += 1
@@ -728,6 +788,8 @@ async def _verify_provider_v2(provider: str, prompt: str) -> AIProviderVerificat
             text = await _call_kimi(prompt)
         elif provider == "gemini":
             text = await _call_gemini(prompt)
+        elif provider == "anthropic":
+            text = await _call_claude(prompt)
         else:
             result.error = f"Unknown provider: {provider}"
             return result
@@ -798,27 +860,57 @@ async def _call_gemini(prompt: str) -> str:
     return response.text or ""
 
 
+async def _call_claude(prompt: str) -> str:
+    from anthropic import AsyncAnthropic
+
+    client = AsyncAnthropic(api_key=settings.anthropic_api_key)
+    response = await asyncio.wait_for(
+        client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1024,
+            tools=[{"type": "web_search_20250305"}],
+            messages=[{"role": "user", "content": prompt}],
+        ),
+        timeout=settings.ai_verify_timeout,
+    )
+    return "".join(block.text for block in response.content if hasattr(block, "text"))
+
+
 class AILiveVerifyDetectorV2:
     """V2: Multi-page AI verification with ground truth comparison and scoring."""
 
-    def __init__(self, domain: str, ground_truth: GroundTruthResult) -> None:
+    def __init__(
+        self,
+        domain: str,
+        ground_truth: GroundTruthResult,
+        discovery_mode: bool = False,
+    ) -> None:
         self.domain = domain
         self.ground_truth = ground_truth
+        self.discovery_mode = discovery_mode
 
     async def verify(self) -> AILiveVerifyResultV2:
         """Run V2 verification against all configured providers."""
         # Use canonical domain from ground truth (resolves www vs non-www)
         domain = self.ground_truth.domain or self.domain
-        prompt = _build_v2_prompt(domain, self.ground_truth)
 
-        # Launch all providers in parallel
+        if self.discovery_mode:
+            prompt = _DISCOVERY_PROMPT.format(domain=domain)
+        else:
+            prompt = _build_v2_prompt(domain, self.ground_truth)
+
+        # Launch all providers in parallel (including Claude)
         tasks: list[tuple[str, asyncio.Task]] = []
         if settings.openai_api_key:
             tasks.append(("openai", asyncio.create_task(_verify_provider_v2("openai", prompt))))
-        if settings.kimi_api_key:
-            tasks.append(("kimi", asyncio.create_task(_verify_provider_v2("kimi", prompt))))
         if settings.gemini_api_key:
             tasks.append(("gemini", asyncio.create_task(_verify_provider_v2("gemini", prompt))))
+        if settings.kimi_api_key:
+            tasks.append(("kimi", asyncio.create_task(_verify_provider_v2("kimi", prompt))))
+        if settings.anthropic_api_key:
+            tasks.append(
+                ("anthropic", asyncio.create_task(_verify_provider_v2("anthropic", prompt)))
+            )
 
         if not tasks:
             return AILiveVerifyResultV2(summary="No AI API keys configured")
@@ -851,7 +943,25 @@ class AILiveVerifyDetectorV2:
         # Build summary
         accessible_count = sum(1 for p in providers if p.overall_access in ("full", "partial"))
         total_count = len([p for p in providers if p.overall_access != "error"])
-        summary = f"{accessible_count} of {total_count} AI providers can access your site"
+
+        if self.discovery_mode:
+            if accessible_count == total_count and total_count > 0:
+                summary = (
+                    f"All {total_count} AI providers can access your site "
+                    "— only our test server is blocked (datacenter IP block)"
+                )
+            elif accessible_count > 0:
+                summary = (
+                    f"{accessible_count} of {total_count} AI providers can access your site "
+                    "— blocking is inconsistent"
+                )
+            else:
+                summary = (
+                    f"0 of {total_count} AI providers can access your site "
+                    "— site appears to block AI access"
+                )
+        else:
+            summary = f"{accessible_count} of {total_count} AI providers can access your site"
 
         return AILiveVerifyResultV2(
             ground_truth=self.ground_truth,
@@ -865,10 +975,14 @@ class AILiveVerifyDetectorV2:
         checks: list[AIVerifyCheck] = []
 
         # Parse each section
+        homepage_text = _parse_section(text, "HOMEPAGE")
         robots_text = _parse_section(text, "ROBOTS")
         inventory_text = _parse_section(text, "INVENTORY")
         vdp_text = _parse_section(text, "VDP")
         sitemap_text = _parse_section(text, "SITEMAP")
+
+        if homepage_text:
+            checks.append(_check_homepage_response(homepage_text))
 
         if robots_text:
             checks.append(_check_robots_response(robots_text, self.ground_truth))

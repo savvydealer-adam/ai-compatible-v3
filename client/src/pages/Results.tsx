@@ -161,8 +161,8 @@ export default function Results() {
         />
         <StatCard
           label="Site Blocked"
-          value={blocking?.is_blocked ? "Yes" : "No"}
-          good={!blocking?.is_blocked}
+          value={blockingLabel(blocking)}
+          good={!blocking?.is_blocked ? true : blocking?.blocking_type === "datacenter_ip" ? undefined : false}
         />
       </div>
 
@@ -220,6 +220,13 @@ const CF_TIER_LABELS: Record<string, string> = {
 function cfTierLabel(tier?: string): string {
   if (!tier || tier === "none") return "Detected";
   return CF_TIER_LABELS[tier] || "Detected";
+}
+
+function blockingLabel(blocking: any): string {
+  if (!blocking?.is_blocked) return "No";
+  if (blocking.blocking_type === "datacenter_ip") return "DC IP Only (AI OK)";
+  if (blocking.blocking_type === "ai_block") return "Yes (AI Blocked)";
+  return "Yes";
 }
 
 function StatCard({ label, value, good }: { label: string; value: string; good?: boolean }) {
