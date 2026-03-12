@@ -173,27 +173,36 @@ class AICompatibilityScorer:
 
                     # Check for narrow whitelist
                     providers = v2_data.get("providers", [])
-                    accessible = [
+                    full_prov = [
                         p for p in providers
-                        if p.get("overall_access") in ("full", "partial")
+                        if p.get("overall_access") == "full"
+                    ]
+                    partial_prov = [
+                        p for p in providers
+                        if p.get("overall_access") == "partial"
                     ]
                     blocked_prov = [
                         p for p in providers
                         if p.get("overall_access") == "blocked"
                     ]
-                    for p in accessible:
+                    for p in full_prov:
                         pname = p.get("provider_name", "unknown")
-                        details.append(f"  {pname}: CAN access")
+                        details.append(f"  {pname}: FULL access")
+                    for p in partial_prov:
+                        pname = p.get("provider_name", "unknown")
+                        details.append(f"  {pname}: PARTIAL (homepage only)")
                     for p in blocked_prov:
                         pname = p.get("provider_name", "unknown")
                         details.append(f"  {pname}: BLOCKED")
 
-                    if accessible and blocked_prov:
+                    # Narrow whitelist: some providers FULL, others partial or blocked
+                    limited_prov = partial_prov + blocked_prov
+                    if full_prov and limited_prov:
                         a_names = ", ".join(
-                            p.get("provider_name", "?") for p in accessible
+                            p.get("provider_name", "?") for p in full_prov
                         )
                         b_names = ", ".join(
-                            p.get("provider_name", "?") for p in blocked_prov
+                            p.get("provider_name", "?") for p in limited_prov
                         )
                         issues.append(
                             Issue(

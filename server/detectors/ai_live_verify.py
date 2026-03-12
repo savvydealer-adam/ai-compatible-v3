@@ -743,10 +743,16 @@ def _calculate_provider_score(checks: list[AIVerifyCheck]) -> tuple[float, str]:
     - VDP data match (price or VIN): 3 pts
     - Inventory browsable: 3 pts
     - Sitemap accessible: 2 pts
+
+    Access classification:
+    - "full": Provider retrieved real data from key pages (inventory/VDP)
+    - "partial": Provider reached the site but couldn't get deep data
+    - "blocked": Provider was blocked from the site entirely
     """
     score = 0.0
     checks_accessible = 0
     checks_blocked = 0
+    key_checks_with_data = 0  # inventory/vdp with match_score >= 0.5
 
     for check in checks:
         if not check.could_access:
@@ -764,18 +770,28 @@ def _calculate_provider_score(checks: list[AIVerifyCheck]) -> tuple[float, str]:
 
         if check.could_access is True:
             checks_accessible += 1
+            # Track if key checks (inventory, VDP) have real data
+            if check.check_type in ("inventory", "vdp_price", "vdp_vin"):
+                if check.match_score >= 0.5:
+                    key_checks_with_data += 1
         elif check.could_access is False:
             checks_blocked += 1
 
     total_checks = checks_accessible + checks_blocked
     if total_checks == 0:
         access = "unknown"
-    elif checks_blocked == 0:
-        access = "full"
     elif checks_accessible == 0:
         access = "blocked"
-    else:
+    elif checks_blocked > 0 and checks_accessible > 0:
         access = "partial"
+    elif key_checks_with_data >= 1:
+        # Provider retrieved real inventory/VDP data — true full access
+        access = "full"
+    elif checks_accessible > 0:
+        # Reached the site (homepage, etc.) but no real inventory/VDP data
+        access = "partial"
+    else:
+        access = "unknown"
 
     return min(10.0, round(score, 1)), access
 
@@ -967,19 +983,30 @@ class AILiveVerifyDetectorV2:
         avg_score = round(sum(valid_scores) / len(valid_scores), 1) if valid_scores else 0.0
 
         # Build summary
-        accessible_count = sum(1 for p in providers if p.overall_access in ("full", "partial"))
+        full_count = sum(1 for p in providers if p.overall_access == "full")
+        partial_count = sum(1 for p in providers if p.overall_access == "partial")
+        blocked_count = sum(1 for p in providers if p.overall_access == "blocked")
         total_count = len([p for p in providers if p.overall_access != "error"])
 
         if self.discovery_mode:
-            if accessible_count == total_count and total_count > 0:
+            if full_count == total_count and total_count > 0:
                 summary = (
-                    f"All {total_count} AI providers can access your site "
+                    f"All {total_count} AI providers have full access to your site "
                     "— only our test server is blocked (datacenter IP block)"
                 )
-            elif accessible_count > 0:
+            elif full_count > 0 and (partial_count > 0 or blocked_count > 0):
+                full_names = ", ".join(
+                    p.provider_name for p in providers if p.overall_access == "full"
+                )
                 summary = (
-                    f"{accessible_count} of {total_count} AI providers can access your site "
-                    "— blocking is inconsistent"
+                    f"Only {full_names} can fully access your inventory — "
+                    f"{partial_count + blocked_count} other AI provider(s) have "
+                    "limited or no access (narrow AI whitelist detected)"
+                )
+            elif partial_count > 0 and full_count == 0:
+                summary = (
+                    f"{partial_count} AI providers can reach your homepage but none can "
+                    "access inventory or vehicle details"
                 )
             else:
                 summary = (
@@ -987,6 +1014,7 @@ class AILiveVerifyDetectorV2:
                     "— site appears to block AI access"
                 )
         else:
+            accessible_count = full_count + partial_count
             summary = f"{accessible_count} of {total_count} AI providers can access your site"
 
         return AILiveVerifyResultV2(

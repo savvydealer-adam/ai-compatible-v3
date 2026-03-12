@@ -293,13 +293,21 @@ function AccessBadge({ access, score }: { access: string; score: number }) {
     unknown: "bg-gray-100 text-gray-600 border-gray-200",
   };
 
+  const labels: Record<string, string> = {
+    full: "FULL ACCESS",
+    partial: "HOMEPAGE ONLY",
+    blocked: "BLOCKED",
+    error: "ERROR",
+    unknown: "UNKNOWN",
+  };
+
   return (
     <span
-      className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold border uppercase ${
+      className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold border ${
         styles[access] || styles.unknown
       }`}
     >
-      {access} ({score}/10)
+      {labels[access] || access.toUpperCase()} ({score}/10)
     </span>
   );
 }
