@@ -418,10 +418,13 @@ def _build_v2_prompt(domain: str, ground_truth: GroundTruthResult) -> str:
 
 def _parse_section(text: str, section: str) -> str:
     """Extract a named section from AI response (e.g. 'ROBOTS: ...')."""
+    # Strip markdown bold/heading markers so **HOMEPAGE:** and ## ROBOTS: both match
+    cleaned = re.sub(r"\*\*", "", text)
+    cleaned = re.sub(r"^#{1,3}\s*", "", cleaned, flags=re.MULTILINE)
     sections = r"HOMEPAGE|ROBOTS|INVENTORY|VDP|SITEMAP"
-    num = r"(?:\d+\.\s*)?"
+    num = r"(?:\d+[\.\)]\s*)?"
     pattern = rf"(?:^|\n)\s*{num}{section}\s*:\s*(.*?)(?=\n\s*{num}(?:{sections})\s*:|$)"
-    match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
+    match = re.search(pattern, cleaned, re.IGNORECASE | re.DOTALL)
     return match.group(1).strip() if match else ""
 
 
