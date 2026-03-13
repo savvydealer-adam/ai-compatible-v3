@@ -240,7 +240,7 @@ async def _verify_kimi(ground_truth: GroundTruth) -> AIProviderVerification:
 
 
 async def _verify_gemini(ground_truth: GroundTruth) -> AIProviderVerification:
-    """Verify using Gemini API with Google Search grounding."""
+    """Verify using Gemini API with URL context and Google Search."""
     result = AIProviderVerification(provider_name="gemini")
     try:
         from google import genai
@@ -254,7 +254,10 @@ async def _verify_gemini(ground_truth: GroundTruth) -> AIProviderVerification:
                 model="gemini-2.5-flash",
                 contents=prompt,
                 config=types.GenerateContentConfig(
-                    tools=[types.Tool(google_search=types.GoogleSearch())],
+                    tools=[
+                        types.Tool(url_context=types.UrlContext()),
+                        types.Tool(google_search=types.GoogleSearch()),
+                    ],
                 ),
             ),
             timeout=settings.ai_verify_timeout,
@@ -873,7 +876,12 @@ async def _call_gemini(prompt: str) -> str:
             model="gemini-2.5-flash",
             contents=prompt,
             config=types.GenerateContentConfig(
-                tools=[types.Tool(google_search=types.GoogleSearch())],
+                tools=[
+                    # url_context: fetches actual URL content (robots.txt, sitemap, etc.)
+                    types.Tool(url_context=types.UrlContext()),
+                    # google_search: helps discover pages (inventory, VDP) via Google
+                    types.Tool(google_search=types.GoogleSearch()),
+                ],
             ),
         ),
         timeout=settings.ai_verify_timeout,
