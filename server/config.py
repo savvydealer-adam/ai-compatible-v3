@@ -41,8 +41,9 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     kimi_api_key: str = ""
     perplexity_api_key: str = ""
+    cohere_api_key: str = ""
     ai_verify_enabled: bool = False
-    ai_verify_timeout: float = 30.0
+    ai_verify_timeout: float = 60.0
     playwright_timeout: float = 20.0
 
     # Database (Cloud SQL via asyncpg)

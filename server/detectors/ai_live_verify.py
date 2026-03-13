@@ -537,8 +537,9 @@ def _check_inventory_response(section_text: str, ground_truth: GroundTruthResult
 
     check.could_access = True
 
-    if not gt_srp:
-        # No ground truth — discovery mode. Check if AI returned real vehicle data.
+    # No ground truth or empty stub (DC-blocked site) — use discovery scoring
+    gt_has_data = gt_srp and (gt_srp.raw_content or gt_srp.vehicle_count > 0)
+    if not gt_has_data:
         has_price = bool(_extract_price(section_text))
         has_vehicles = bool(re.search(r"\d{4}\s+\w+", section_text))  # year + make
         if has_price or has_vehicles:
@@ -612,8 +613,9 @@ def _check_vdp_response(
 
     check.could_access = True
 
-    if not gt_vdp:
-        # No ground truth — discovery mode. Check if AI returned price/VIN.
+    # No ground truth or empty stub (DC-blocked site) — use discovery scoring
+    gt_has_data = gt_vdp and (gt_vdp.price or gt_vdp.vin)
+    if not gt_has_data:
         check.data_returned = section_text[:200]
         if check_type == "vdp_price" and _extract_price(section_text):
             check.match_score = 0.7  # found a price without GT to compare
@@ -696,8 +698,9 @@ def _check_sitemap_response(section_text: str, ground_truth: GroundTruthResult) 
 
     check.could_access = True
 
-    if not gt_sitemap:
-        # No ground truth — discovery mode
+    # No ground truth or empty stub (DC-blocked site) — use discovery scoring
+    gt_has_data = gt_sitemap and gt_sitemap.sitemap_url_count > 0
+    if not gt_has_data:
         if re.search(r"<loc>|\.xml|url", section_text, re.I) and len(section_text.strip()) > 30:
             check.match_score = 0.6
         elif len(section_text.strip()) > 30:
@@ -916,8 +919,18 @@ async def _call_perplexity(prompt: str) -> str:
     )
     response = await asyncio.wait_for(
         client.chat.completions.create(
-            model="sonar",
-            messages=[{"role": "user", "content": prompt}],
+            model="sonar-pro",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a web research assistant. Use your web search "
+                        "capabilities to find information from the URLs provided. "
+                        "Search for the specific pages and return the data requested."
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
         ),
         timeout=settings.ai_verify_timeout,
     )
