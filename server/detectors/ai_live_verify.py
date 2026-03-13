@@ -254,10 +254,7 @@ async def _verify_gemini(ground_truth: GroundTruth) -> AIProviderVerification:
                 model="gemini-2.5-flash",
                 contents=prompt,
                 config=types.GenerateContentConfig(
-                    tools=[
-                        types.Tool(url_context=types.UrlContext()),
-                        types.Tool(google_search=types.GoogleSearch()),
-                    ],
+                    tools=[types.Tool(url_context=types.UrlContext())],
                 ),
             ),
             timeout=settings.ai_verify_timeout,
@@ -474,6 +471,11 @@ def _check_robots_response(section_text: str, ground_truth: GroundTruthResult) -
         check.could_access = len(section_text.strip()) > 20
         if gt_robots:
             check.data_expected = "Not found" if not gt_robots.accessible else "Exists"
+        # Discovery mode: give credit for returning robots.txt-like content
+        if check.could_access and re.search(r"user-agent|disallow|allow|sitemap", section_text, re.I):
+            check.match_score = 0.7
+        elif check.could_access:
+            check.match_score = 0.5
         return check
 
     # Compare: do lines from AI response appear as substrings in our raw content?
@@ -536,6 +538,13 @@ def _check_inventory_response(section_text: str, ground_truth: GroundTruthResult
     check.could_access = True
 
     if not gt_srp:
+        # No ground truth — discovery mode. Check if AI returned real vehicle data.
+        has_price = bool(_extract_price(section_text))
+        has_vehicles = bool(re.search(r"\d{4}\s+\w+", section_text))  # year + make
+        if has_price or has_vehicles:
+            check.match_score = 0.7  # substantive vehicle data without GT to compare
+        elif len(section_text.strip()) > 50:
+            check.match_score = 0.5  # got some text, might be useful
         return check
 
     check.data_expected = gt_srp.raw_content or f"{gt_srp.vehicle_count} vehicles"
@@ -604,7 +613,14 @@ def _check_vdp_response(
     check.could_access = True
 
     if not gt_vdp:
+        # No ground truth — discovery mode. Check if AI returned price/VIN.
         check.data_returned = section_text[:200]
+        if check_type == "vdp_price" and _extract_price(section_text):
+            check.match_score = 0.7  # found a price without GT to compare
+        elif check_type == "vdp_vin" and _extract_vin(section_text):
+            check.match_score = 0.7  # found a VIN without GT to compare
+        elif len(section_text.strip()) > 50:
+            check.match_score = 0.4  # got text but no structured data
         return check
 
     if check_type == "vdp_price":
@@ -681,6 +697,11 @@ def _check_sitemap_response(section_text: str, ground_truth: GroundTruthResult) 
     check.could_access = True
 
     if not gt_sitemap:
+        # No ground truth — discovery mode
+        if re.search(r"<loc>|\.xml|url", section_text, re.I) and len(section_text.strip()) > 30:
+            check.match_score = 0.6
+        elif len(section_text.strip()) > 30:
+            check.match_score = 0.4
         return check
 
     check.data_expected = f"{gt_sitemap.sitemap_url_count} URLs"
@@ -876,12 +897,9 @@ async def _call_gemini(prompt: str) -> str:
             model="gemini-2.5-flash",
             contents=prompt,
             config=types.GenerateContentConfig(
-                tools=[
-                    # url_context: fetches actual URL content (robots.txt, sitemap, etc.)
-                    types.Tool(url_context=types.UrlContext()),
-                    # google_search: helps discover pages (inventory, VDP) via Google
-                    types.Tool(google_search=types.GoogleSearch()),
-                ],
+                # url_context fetches actual URL content (robots.txt, inventory, etc.)
+                # Cannot combine with google_search — causes errors/conflicts
+                tools=[types.Tool(url_context=types.UrlContext())],
             ),
         ),
         timeout=settings.ai_verify_timeout,
