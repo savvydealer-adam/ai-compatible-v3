@@ -35,6 +35,12 @@ _ACCESS_DENIED_PATTERNS = [
     "unable to visit",
     "cannot browse",
     "not able to access",
+    "not accessible",
+    "is not accessible",
+    "are not accessible",
+    "currently inaccessible",
+    "inaccessible",
+    "inaccessibility",
 ]
 
 
@@ -785,21 +791,22 @@ def _calculate_provider_score(checks: list[AIVerifyCheck]) -> tuple[float, str]:
         if not check.could_access:
             pass
         elif check.check_type == "robots":
-            score += 2.0
+            # Weight by data quality — "NOT FOUND" (match=0) gets minimal credit
+            score += 2.0 * max(0.3, check.match_score)
         elif check.check_type in ("vdp_price", "vdp_vin"):
             score += check.match_score * 1.5
         elif check.check_type == "inventory":
-            score += 3.0 * max(0.5, check.match_score)
+            score += 3.0 * max(0.3, check.match_score)
         elif check.check_type == "sitemap":
-            score += 2.0
+            score += 2.0 * max(0.3, check.match_score)
         elif check.check_type == "homepage":
             score += 1.0
 
         if check.could_access is True:
             checks_accessible += 1
-            # Track if key checks (inventory, VDP) have real data
+            # Track if key checks (inventory, VDP) have real vehicle data
             if check.check_type in ("inventory", "vdp_price", "vdp_vin"):
-                if check.match_score >= 0.5:
+                if check.match_score >= 0.6:
                     key_checks_with_data += 1
         elif check.could_access is False:
             checks_blocked += 1
@@ -823,7 +830,9 @@ def _calculate_provider_score(checks: list[AIVerifyCheck]) -> tuple[float, str]:
     return min(10.0, round(score, 1)), access
 
 
-async def _verify_provider_v2(provider: str, prompt: str) -> AIProviderVerificationV2:
+async def _verify_provider_v2(
+    provider: str, prompt: str, domain: str = ""
+) -> AIProviderVerificationV2:
     """Send the V2 prompt to a single provider and get raw response."""
     result = AIProviderVerificationV2(provider_name=provider)
 
@@ -833,7 +842,7 @@ async def _verify_provider_v2(provider: str, prompt: str) -> AIProviderVerificat
         elif provider == "kimi":
             text = await _call_kimi(prompt)
         elif provider == "gemini":
-            text = await _call_gemini(prompt)
+            text = await _call_gemini(prompt, domain=domain)
         elif provider == "anthropic":
             text = await _call_claude(prompt)
         elif provider == "perplexity":
@@ -890,22 +899,40 @@ async def _call_kimi(prompt: str) -> str:
     return response.choices[0].message.content or ""
 
 
-async def _call_gemini(prompt: str) -> str:
+_GEMINI_PROMPT = (
+    "Search for information about the car dealership at {domain}.\n\n"
+    "1. HOMEPAGE: What is the dealership name and what brands do they sell?\n\n"
+    "2. ROBOTS: Fetch https://{domain}/robots.txt\n"
+    "   Return the first 5 lines of text exactly as they appear.\n\n"
+    "3. INVENTORY: Find vehicle inventory listings on the site.\n"
+    "   Return the names and prices of the first 3 vehicles.\n\n"
+    "4. SITEMAP: Fetch https://{domain}/sitemap.xml\n"
+    "   Return the total number of URLs and the first 3.\n\n"
+    "IMPORTANT: For each section, respond with one of:\n"
+    "- The requested data if found\n"
+    '- "NOT FOUND" if the page does not exist\n'
+    '- "BLOCKED" if you cannot reach the server\n\n'
+    "HOMEPAGE:\nROBOTS:\nINVENTORY:\nSITEMAP:"
+)
+
+
+async def _call_gemini(prompt: str, domain: str = "") -> str:
     from google import genai
     from google.genai import types
 
     client = genai.Client(api_key=settings.gemini_api_key)
+    # Use Gemini-specific prompt that works with url_context
+    # (full discovery prompt with VDP causes 500 errors)
+    gemini_prompt = _GEMINI_PROMPT.format(domain=domain) if domain else prompt
     response = await asyncio.wait_for(
         client.aio.models.generate_content(
             model="gemini-2.5-flash",
-            contents=prompt,
+            contents=gemini_prompt,
             config=types.GenerateContentConfig(
-                # url_context fetches actual URL content (robots.txt, inventory, etc.)
-                # Cannot combine with google_search — causes errors/conflicts
                 tools=[types.Tool(url_context=types.UrlContext())],
             ),
         ),
-        timeout=settings.ai_verify_timeout,
+        timeout=max(settings.ai_verify_timeout, 90.0),
     )
     return response.text or ""
 
@@ -981,7 +1008,9 @@ class AILiveVerifyDetectorV2:
         if settings.openai_api_key:
             tasks.append(("openai", asyncio.create_task(_verify_provider_v2("openai", prompt))))
         if settings.gemini_api_key:
-            tasks.append(("gemini", asyncio.create_task(_verify_provider_v2("gemini", prompt))))
+            tasks.append(("gemini", asyncio.create_task(
+                _verify_provider_v2("gemini", prompt, domain=domain)
+            )))
         if settings.perplexity_api_key:
             tasks.append(
                 ("perplexity", asyncio.create_task(_verify_provider_v2("perplexity", prompt)))
@@ -1067,6 +1096,13 @@ class AILiveVerifyDetectorV2:
         """Parse AI response into individual checks compared against ground truth."""
         checks: list[AIVerifyCheck] = []
 
+        # In discovery mode, ground truth is unreliable (our server was blocked).
+        # Use an empty GT so check functions use discovery-mode scoring.
+        if self.discovery_mode:
+            gt = GroundTruthResult(domain=self.ground_truth.domain)
+        else:
+            gt = self.ground_truth
+
         # Parse each section
         homepage_text = _parse_section(text, "HOMEPAGE")
         robots_text = _parse_section(text, "ROBOTS")
@@ -1078,16 +1114,16 @@ class AILiveVerifyDetectorV2:
             checks.append(_check_homepage_response(homepage_text))
 
         if robots_text:
-            checks.append(_check_robots_response(robots_text, self.ground_truth))
+            checks.append(_check_robots_response(robots_text, gt))
 
         if inventory_text:
-            checks.append(_check_inventory_response(inventory_text, self.ground_truth))
+            checks.append(_check_inventory_response(inventory_text, gt))
 
         if vdp_text:
-            checks.append(_check_vdp_response(vdp_text, self.ground_truth, "vdp_price"))
-            checks.append(_check_vdp_response(vdp_text, self.ground_truth, "vdp_vin"))
+            checks.append(_check_vdp_response(vdp_text, gt, "vdp_price"))
+            checks.append(_check_vdp_response(vdp_text, gt, "vdp_vin"))
 
         if sitemap_text:
-            checks.append(_check_sitemap_response(sitemap_text, self.ground_truth))
+            checks.append(_check_sitemap_response(sitemap_text, gt))
 
         return checks
