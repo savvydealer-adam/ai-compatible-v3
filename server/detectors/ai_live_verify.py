@@ -373,30 +373,16 @@ _V2_PROMPT_NO_VDP = (
 # Discovery prompt: used when our server is DC-blocked and we have no ground truth.
 # AI providers navigate the site themselves to find inventory/VDP data.
 _DISCOVERY_PROMPT = (
-    "I need you to test whether a car dealership website is accessible to AI.\n"
-    "Visit each page below and return the exact data requested.\n\n"
-    "1. HOMEPAGE: Visit https://{domain}\n"
-    "   What is the dealership name? What vehicle brands do they sell?\n\n"
-    "2. ROBOTS: Fetch https://{domain}/robots.txt\n"
-    "   Copy the first 5 lines of text exactly as they appear.\n\n"
-    "3. INVENTORY: Find the vehicle inventory page. Try these URLs in order:\n"
-    "   - https://{domain}/new-inventory/\n"
-    "   - https://{domain}/used-inventory/\n"
-    "   - https://{domain}/inventory/\n"
-    "   - https://{domain}/searchnew.aspx\n"
-    "   - https://{domain}/searchused.aspx\n"
-    "   Return the names and prices of the first 3 vehicles listed.\n"
-    "   Include the exact URL where you found the inventory.\n\n"
-    "4. VDP: From the inventory, click through to any single vehicle detail page.\n"
-    "   Return: the vehicle name (Year Make Model), the listed price (e.g. $XX,XXX),\n"
-    "   the 17-character VIN, and the exact URL of the detail page.\n\n"
-    "5. SITEMAP: Fetch https://{domain}/sitemap.xml\n"
-    "   Return the total number of <loc> entries and the first 3 URLs.\n\n"
-    "IMPORTANT: For each section, respond with one of:\n"
-    "- The requested data if the page exists\n"
-    '- "NOT FOUND" if the page returns a 404 or does not exist\n'
-    '- "BLOCKED" only if you cannot reach the server at all '
-    "(connection refused, timeout, Cloudflare block)\n\n"
+    "Visit each URL below and return the data requested.\n\n"
+    "HOMEPAGE: Visit https://{domain} — what is the dealership name and brands sold?\n\n"
+    "ROBOTS: Visit https://{domain}/robots.txt — copy the first 5 lines exactly.\n\n"
+    "INVENTORY: Visit https://{domain}/new-inventory/ — list the first 3 vehicles "
+    "with their prices. If that URL fails, try /used-inventory/ or /inventory/.\n\n"
+    "VDP: From any inventory listing, visit one vehicle detail page. "
+    "Return the Year Make Model, price, and 17-character VIN.\n\n"
+    "SITEMAP: Visit https://{domain}/sitemap.xml — how many URLs total? List the first 3.\n\n"
+    'For each section respond with the data, "NOT FOUND" if 404, '
+    'or "BLOCKED" if the server refuses the connection.\n\n'
     "HOMEPAGE:\nROBOTS:\nINVENTORY:\nVDP:\nSITEMAP:"
 )
 
@@ -864,15 +850,23 @@ async def _call_openai(prompt: str) -> str:
     from openai import AsyncOpenAI
 
     client = AsyncOpenAI(api_key=settings.openai_api_key)
-    response = await asyncio.wait_for(
-        client.responses.create(
-            model="gpt-4o-mini",
-            tools=[{"type": "web_search"}],
-            input=prompt,
-        ),
-        timeout=settings.ai_verify_timeout,
-    )
-    return response.output_text
+
+    # gpt-4o-mini has web access but is inconsistent — retry once if blocked
+    for attempt in range(2):
+        response = await asyncio.wait_for(
+            client.responses.create(
+                model="gpt-4o-mini",
+                tools=[{"type": "web_search"}],
+                input=prompt,
+            ),
+            timeout=settings.ai_verify_timeout,
+        )
+        text = response.output_text
+        if attempt == 0 and _is_access_denied(text):
+            logger.info("OpenAI first attempt returned access denied, retrying...")
+            continue
+        return text
+    return text  # return last attempt regardless
 
 
 async def _call_kimi(prompt: str) -> str:
